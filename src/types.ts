@@ -1,0 +1,136 @@
+export interface CollectionMethod {
+  id: number;
+  name: string;
+  type: 'MY' | 'BD';
+  initial_balance?: number;
+  initial_balance_date?: string;
+  subItems: CollectionMethodSubItem[];
+}
+
+export interface CollectionMethodSubItem {
+  id: number;
+  name: string;
+  initial_balance?: number;
+  initial_balance_date?: string;
+}
+
+export interface User {
+  id: number;
+  username: string;
+  password?: string;
+  role: 'admin' | 'operator';
+}
+
+export interface MYAgent {
+  id: number;
+  name: string;
+  phone?: string;
+  default_bkash_rate: number;
+  default_bank_rate: number;
+  total_orders_myr: number;
+  total_payments_myr: number;
+  initial_balance?: number;
+  initial_balance_date?: string;
+  outstanding: number;
+}
+
+export interface BDAgent {
+  id: number;
+  name: string;
+  phone?: string;
+  total_orders_bdt: number;
+  total_payments_bdt: number;
+  initial_balance?: number;
+  initial_balance_date?: string;
+  outstanding: number;
+}
+
+export interface Order {
+  id: number;
+  my_agent_id: number;
+  my_agent_name?: string;
+  bd_agent_id: number;
+  bd_agent_name?: string;
+  type: 'bkash' | 'bank' | 'nagad';
+  amount_bdt: number;
+  rate: number;
+  amount_myr: number;
+  charge?: number;
+  date: string;
+  status: string;
+  remark?: string;
+}
+
+export interface MYPayment {
+  id: number;
+  my_agent_id: number;
+  amount_myr: number;
+  payment_method: string;
+  sub_method?: string;
+  date: string;
+  note?: string;
+  order_ids?: number[];
+}
+
+export interface BDPayment {
+  id: number;
+  bd_agent_id: number;
+  amount_bdt: number;
+  payment_method: string;
+  sub_method?: string;
+  date: string;
+  note?: string;
+  order_ids?: number[];
+}
+
+export interface Conversion {
+  id: number;
+  amount_myr: number;
+  rate: number;
+  amount_bdt: number;
+  bank_charges: number;
+  date: string;
+  note?: string;
+  commission_enabled?: boolean;
+  commission_amount?: number;
+  total_bd_received?: number;
+  pay_to_bd_agent_id?: number;
+}
+
+export interface Expense {
+  id: number;
+  amount_myr: number;
+  currency?: 'MYR' | 'BDT';
+  category: string;
+  date: string;
+  note?: string;
+  order_id?: number;
+}
+
+export interface RateHistory {
+  id: number;
+  rate: number;
+  date: string;
+}
+
+export interface Withdrawal {
+  id: number;
+  agent_id: number;
+  agent_type: 'MY' | 'BD';
+  method_name: string;
+  sub_method_name?: string;
+  amount: number;
+  date: string;
+  note?: string;
+}
+
+export interface Deposit {
+  id: number;
+  agent_id: number;
+  agent_type: 'MY' | 'BD';
+  method_name: string;
+  sub_method_name?: string;
+  amount: number;
+  date: string;
+  note?: string;
+}
