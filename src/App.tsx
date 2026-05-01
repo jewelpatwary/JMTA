@@ -26,9 +26,10 @@ import {
   Scale,
   FileText,
   Check,
-  Download
+  Download,
+  ArrowUpDown,
+  Calculator
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import XLSX from 'xlsx-js-style';
@@ -110,13 +111,14 @@ const Button = ({
   );
 };
 
-const Input = ({ label, className, ...props }: { label?: string } & React.InputHTMLAttributes<HTMLInputElement>) => (
+const Input = ({ label, className, helpText, ...props }: { label?: string; helpText?: string } & React.InputHTMLAttributes<HTMLInputElement>) => (
   <div className="space-y-1">
     {label && <label className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{label}</label>}
     <input 
       {...props} 
       className={cn("w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-slate-900 dark:focus:ring-white focus:border-transparent outline-none transition-all text-xs dark:text-white", className)}
     />
+    {helpText && <p className="text-[10px] text-slate-500">{helpText}</p>}
   </div>
 );
 
@@ -131,7 +133,7 @@ const Select = ({ label, options, ...props }: { label?: string; options: { value
         {options.map((opt, idx) => <option key={`${opt.value}-${idx}`} value={opt.value}>{opt.label}</option>)}
       </select>
       <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-        <Plus className="rotate-45 w-3 h-3" />
+        <ChevronDown className="w-3 h-3" />
       </div>
     </div>
   </div>
@@ -171,16 +173,12 @@ const SearchableSelect = ({
         )}
       >
         <span className="truncate">{selectedOption ? selectedOption.label : placeholder}</span>
-        <Search size={12} className="text-slate-400 flex-shrink-0" />
+        <ChevronDown size={12} className="text-slate-400 flex-shrink-0" />
       </div>
 
-      <AnimatePresence>
-        {isOpen && (
+      {isOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-            <motion.div 
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
+            <div 
               className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[80vh]"
             >
               <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
@@ -227,10 +225,9 @@ const SearchableSelect = ({
                   <div className="py-8 text-center text-slate-500 text-sm">No results found</div>
                 )}
               </div>
-            </motion.div>
+            </div>
           </div>
         )}
-      </AnimatePresence>
     </div>
   );
 };
@@ -254,10 +251,7 @@ const ConfirmationModal = ({
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.95 }} 
-        animate={{ opacity: 1, scale: 1 }} 
-        exit={{ opacity: 0, scale: 0.95 }}
+      <div 
         className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl max-w-md w-full p-6"
       >
         <div className="flex items-center gap-3 mb-4 text-red-600">
@@ -269,7 +263,7 @@ const ConfirmationModal = ({
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button variant="danger" onClick={() => { onConfirm(); onClose(); }}>Delete</Button>
         </div>
-      </motion.div>
+      </div>
     </div>
   );
 };
@@ -570,9 +564,11 @@ function ViewPaymentsModal({
   onViewLedger?: () => void;
   onSuccess?: () => void;
 }) {
-  const { myPayments, bdPayments } = useAppStore();
+  const { myPayments, bdPayments, collectionMethods } = useAppStore();
   const [filterDate, setFilterDate] = useState('');
   const [editingPayment, setEditingPayment] = useState<any>(null);
+  const [editMethod, setEditMethod] = useState('');
+  const [editSubMethod, setEditSubMethod] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [paymentToDelete, setPaymentToDelete] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -597,6 +593,14 @@ function ViewPaymentsModal({
     if (onSuccess) onSuccess();
     setPaymentToDelete(null);
     setShowDeleteConfirm(false);
+  };
+
+  const filteredMethods = collectionMethods.filter(m => (m.type || 'MY') === type);
+
+  const handleEditClick = (p: any) => {
+    setEditingPayment(p);
+    setEditMethod(p.payment_method || '');
+    setEditSubMethod(p.sub_method || '');
   };
 
   const handleEditSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -678,7 +682,7 @@ function ViewPaymentsModal({
                     <td className="px-3 py-2 text-xs text-slate-500">{p.note}</td>
                     <td className="px-3 py-2 text-right">
                       <div className="flex justify-end gap-1">
-                        <button onClick={() => setEditingPayment(p)} className="p-1 text-slate-400 hover:text-blue-600 rounded"><Edit size={14} /></button>
+                        <button onClick={() => handleEditClick(p)} className="p-1 text-slate-400 hover:text-blue-600 rounded"><Edit size={14} /></button>
                         <button onClick={() => handleDelete(p.id)} className="p-1 text-slate-400 hover:text-red-600 rounded"><Trash2 size={14} /></button>
                       </div>
                     </td>
@@ -767,11 +771,36 @@ function ViewPaymentsModal({
             <Card className="p-6">
               <form onSubmit={handleEditSubmit} className="space-y-4">
                 <Input name="date" label="Date" type="date" defaultValue={editingPayment.date} required />
-                <Select name="payment_method" label="Payment Method" defaultValue={editingPayment.payment_method} options={[
-                  {value: 'bank', label: 'Bank'},
-                  {value: 'bkash', label: 'Bkash'},
-                  {value: 'cash', label: 'Cash'}
-                ]} />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Select 
+                    name="payment_method" 
+                    label="Payment Method" 
+                    value={editMethod} 
+                    onChange={(e) => {
+                      setEditMethod(e.target.value);
+                      setEditSubMethod('');
+                    }}
+                    options={[
+                      {value: '', label: 'Select Method'}, 
+                      ...filteredMethods.map(m => ({value: m.name, label: m.name}))
+                    ]} 
+                    required
+                  />
+                  <Select 
+                    name="sub_method" 
+                    label="Sub-Method" 
+                    value={editSubMethod} 
+                    onChange={(e) => setEditSubMethod(e.target.value)}
+                    options={[
+                      {value: '', label: 'Select Sub-Method'}, 
+                      ...(editMethod 
+                        ? filteredMethods.find(m => m.name === editMethod)?.subItems.map(s => ({value: s.name, label: s.name})) || []
+                        : []
+                      )
+                    ]} 
+                    required
+                  />
+                </div>
                 {type === 'MY' ? (
                   <Input name="amount_myr" label="Amount (RM)" type="number" step="0.01" defaultValue={editingPayment.amount_myr} required />
                 ) : (
@@ -1093,21 +1122,14 @@ const ProfileSidebar = ({
   const filteredMethods = collectionMethods.filter(m => (m.type || 'MY') === selectedType);
 
   return (
-    <AnimatePresence>
+    <>
       {isOpen && (
         <>
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+          <div 
             onClick={onClose}
             className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[60]"
           />
-          <motion.aside 
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            exit={{ x: '100%' }}
-            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+          <aside 
             className="fixed inset-y-0 right-0 w-80 bg-white dark:bg-slate-900 shadow-2xl z-[70] flex flex-col"
           >
             <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
@@ -1407,13 +1429,11 @@ const ProfileSidebar = ({
                   </div>
                 </div>
               </div>
-            </motion.aside>
+            </aside>
 
           {showDetailsModal && detailsData && (
             <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-              <motion.div 
-                initial={{ scale: 0.95, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
+              <div 
                 className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
               >
                 <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
@@ -1465,12 +1485,12 @@ const ProfileSidebar = ({
                     Save Changes
                   </button>
                 </div>
-              </motion.div>
+              </div>
             </div>
           )}
         </>
       )}
-    </AnimatePresence>
+    </>
   );
 };
 
@@ -1805,9 +1825,7 @@ function EditTransactionModal({ isOpen, onClose, transaction }: {
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
+      <div 
         className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800"
       >
         <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
@@ -1825,7 +1843,7 @@ function EditTransactionModal({ isOpen, onClose, transaction }: {
             <Button type="submit" className="flex-1 bg-slate-900 text-white">Save Changes</Button>
           </div>
         </form>
-      </motion.div>
+      </div>
     </div>
   );
 }
@@ -1945,7 +1963,7 @@ function BankBalancePage() {
   const totalNet = totalBalance - totalWithdrawn;
 
   return (
-    <motion.div className="space-y-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+    <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Select 
             label="Agent Type" 
@@ -2044,7 +2062,7 @@ function BankBalancePage() {
           onSuccess={() => {}}
         />
       )}
-    </motion.div>
+    </div>
   );
 }
 
@@ -2101,9 +2119,7 @@ function EditMethodDetailsModal({ isOpen, onClose, item, onSuccess }: {
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
+      <div 
         className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800"
       >
         <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
@@ -2121,7 +2137,7 @@ function EditMethodDetailsModal({ isOpen, onClose, item, onSuccess }: {
             <Button type="submit" className="flex-1 bg-slate-900 text-white">Save Changes</Button>
           </div>
         </form>
-      </motion.div>
+      </div>
     </div>
   );
 }
@@ -2159,9 +2175,7 @@ function WithdrawModal({ isOpen, onClose, agentId, agentType, methodName, subMet
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
+      <div 
         className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800"
       >
         <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
@@ -2185,7 +2199,7 @@ function WithdrawModal({ isOpen, onClose, agentId, agentType, methodName, subMet
             <Button type="submit" className="flex-1 bg-red-600 hover:bg-red-700">Withdraw</Button>
           </div>
         </form>
-      </motion.div>
+      </div>
     </div>
   );
 }
@@ -2222,9 +2236,7 @@ function AddBalanceModal({ isOpen, onClose, agentId, agentType, methodName, subM
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
+      <div 
         className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-800"
       >
         <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
@@ -2248,7 +2260,7 @@ function AddBalanceModal({ isOpen, onClose, agentId, agentType, methodName, subM
             <Button type="submit" className="flex-1 bg-emerald-600 hover:bg-emerald-700">Add Balance</Button>
           </div>
         </form>
-      </motion.div>
+      </div>
     </div>
   );
 }
@@ -2285,7 +2297,7 @@ function PaymentPage({ token, onViewLedger, onPaymentAdded }: { token: string; o
   );
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+    <div className="space-y-6">
       <div className="flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="relative flex-1 max-w-md w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
@@ -2420,7 +2432,7 @@ function PaymentPage({ token, onViewLedger, onPaymentAdded }: { token: string; o
           />
         </>
       )}
-    </motion.div>
+    </div>
   );
 }
 
@@ -2564,11 +2576,11 @@ export default function App() {
   if (!token) {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-4 transition-colors">
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="w-full max-w-md"
-        >
+      <div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="w-full max-w-md"
+      >
           <Card className="p-8">
             <div className="mb-8 text-center">
               <div className="w-16 h-16 bg-slate-900 dark:bg-white rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -2583,7 +2595,7 @@ export default function App() {
               <Button type="submit" className="w-full py-3">Login to Dashboard</Button>
             </form>
           </Card>
-        </motion.div>
+        </div>
       </div>
     );
   }
@@ -2628,6 +2640,8 @@ export default function App() {
           <NavItem active={activeTab === 'conversion'} onClick={() => { setActiveTab('conversion'); setIsMobileMenuOpen(false); }} icon={<Banknote size={20} />} label="RM Conversion" />
           <NavItem active={activeTab === 'expenses'} onClick={() => { setActiveTab('expenses'); setIsMobileMenuOpen(false); }} icon={<Receipt size={20} />} label="Expenses" />
           <NavItem active={activeTab === 'balances'} onClick={() => { setActiveTab('balances'); setIsMobileMenuOpen(false); }} icon={<Scale size={20} />} label="Bank Balance" />
+          <NavItem active={activeTab === 'calculation'} onClick={() => { setActiveTab('calculation'); setIsMobileMenuOpen(false); }} icon={<Calculator size={20} />} label="Calculation" />
+          <NavItem active={activeTab === 'loan'} onClick={() => { setActiveTab('loan'); setIsMobileMenuOpen(false); }} icon={<FileText size={20} />} label="Loan" />
           <NavItem active={activeTab === 'reports'} onClick={() => { setReportFilters(null); setActiveTab('reports'); setIsMobileMenuOpen(false); }} icon={<BarChart3 size={20} />} label="Reports" />
         </nav>
 
@@ -2662,28 +2676,28 @@ export default function App() {
         </header>
 
         <div className="p-4">
-          <AnimatePresence mode="wait">
-            {activeTab === 'dashboard' && <Dashboard stats={stats} onReload={refresh} onViewAll={() => {
-              const today = new Date().toISOString().split('T')[0];
-              setOrderFilters({ start: today, end: today });
-              setActiveTab('orders');
-            }} />}
-            {activeTab === 'default-rate' && <DefaultRateSettings />}
-            {activeTab === 'my-agents' && <MYAgents token={token!} onAgentAdded={refresh} onBulkUpload={() => handleBulkUpload('MY')} />}
-            {activeTab === 'bd-agents' && <BDAgents token={token!} onAgentAdded={refresh} onBulkUpload={() => handleBulkUpload('BD')} />}
-            {activeTab === 'orders' && <Orders token={token!} onOrderAdded={refresh} initialFilters={orderFilters} onBulkUpload={() => setShowBulkOrderUpload(true)} />}
-            {activeTab === 'payment' && <PaymentPage token={token!} onPaymentAdded={refresh} onViewLedger={(type, id) => {
-              setReportFilters({
-                type: 'ledger',
-                [type === 'MY' ? 'my_agent_id' : 'bd_agent_id']: id.toString()
-              });
-              setActiveTab('reports');
-            }} />}
-            {activeTab === 'conversion' && <ConversionTab token={token!} onConversionAdded={refresh} />}
-            {activeTab === 'expenses' && <Expenses token={token!} onExpenseAdded={refresh} />}
-            {activeTab === 'balances' && <BankBalancePage />}
-            {activeTab === 'reports' && <Reports token={token!} stats={stats} initialFilters={reportFilters} />}
-          </AnimatePresence>
+          {activeTab === 'dashboard' && <Dashboard stats={stats} onReload={refresh} onViewAll={() => {
+            const today = new Date().toISOString().split('T')[0];
+            setOrderFilters({ start: today, end: today });
+            setActiveTab('orders');
+          }} />}
+          {activeTab === 'default-rate' && <DefaultRateSettings />}
+          {activeTab === 'my-agents' && <MYAgents token={token!} onAgentAdded={refresh} onBulkUpload={() => handleBulkUpload('MY')} />}
+          {activeTab === 'bd-agents' && <BDAgents token={token!} onAgentAdded={refresh} onBulkUpload={() => handleBulkUpload('BD')} />}
+          {activeTab === 'orders' && <Orders token={token!} onOrderAdded={refresh} initialFilters={orderFilters} onBulkUpload={() => setShowBulkOrderUpload(true)} />}
+          {activeTab === 'payment' && <PaymentPage token={token!} onPaymentAdded={refresh} onViewLedger={(type, id) => {
+            setReportFilters({
+              type: 'ledger',
+              [type === 'MY' ? 'my_agent_id' : 'bd_agent_id']: id.toString()
+            });
+            setActiveTab('reports');
+          }} />}
+          {activeTab === 'conversion' && <ConversionTab token={token!} onConversionAdded={refresh} />}
+          {activeTab === 'expenses' && <Expenses token={token!} onExpenseAdded={refresh} />}
+          {activeTab === 'balances' && <BankBalancePage />}
+          {activeTab === 'calculation' && <CalculationPage />}
+          {activeTab === 'loan' && <LoanPage />}
+          {activeTab === 'reports' && <Reports token={token!} stats={stats} initialFilters={reportFilters} />}
         </div>
       </main>
 
@@ -2783,7 +2797,7 @@ function Dashboard({ stats, onViewAll, onReload }: { stats: any; onViewAll: () =
   ];
 
   return (
-    <motion.div 
+    <div 
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
@@ -2917,7 +2931,7 @@ function Dashboard({ stats, onViewAll, onReload }: { stats: any; onViewAll: () =
           </div>
         </Card>
       </div>
-    </motion.div>
+    </div>
   );
 }
 
@@ -3046,9 +3060,7 @@ function BulkOrderUploadModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-      <motion.div 
-        initial={{ scale: 0.95, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
+      <div 
         className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
       >
         <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
@@ -3114,7 +3126,7 @@ function BulkOrderUploadModal({
         <div className="p-4 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex justify-end">
           <Button variant="outline" onClick={onClose}>Close</Button>
         </div>
-      </motion.div>
+      </div>
     </div>
   );
 }
@@ -3255,9 +3267,7 @@ function BulkPaymentUploadModal({
 
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-      <motion.div 
-        initial={{ scale: 0.95, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
+      <div 
         className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
       >
         <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
@@ -3323,7 +3333,7 @@ function BulkPaymentUploadModal({
         <div className="p-4 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex justify-end">
           <Button variant="outline" onClick={onClose}>Close</Button>
         </div>
-      </motion.div>
+      </div>
     </div>
   );
 }
@@ -3344,24 +3354,19 @@ function DefaultRateSettings() {
   };
 
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="max-w-md mx-auto mt-8 relative">
-      <AnimatePresence>
-        {showSuccess && (
-          <motion.div 
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="absolute -top-16 left-0 right-0 flex justify-center z-50"
-          >
-            <div className="bg-emerald-500 text-white px-6 py-3 rounded-xl shadow-lg shadow-emerald-500/20 flex items-center gap-2 font-bold">
-              <div className="w-5 h-5 bg-white/20 rounded-full flex items-center justify-center">
-                <Check className="w-3 h-3 text-white" />
-              </div>
-              Default Rate Saved Successfully!
+    <div className="max-w-md mx-auto mt-8 relative">
+      {showSuccess && (
+        <div 
+          className="absolute -top-16 left-0 right-0 flex justify-center z-50"
+        >
+          <div className="bg-emerald-500 text-white px-6 py-3 rounded-xl shadow-lg shadow-emerald-500/20 flex items-center gap-2 font-bold">
+            <div className="w-5 h-5 bg-white/20 rounded-full flex items-center justify-center">
+              <Check className="w-3 h-3 text-white" />
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            Default Rate Saved Successfully!
+          </div>
+        </div>
+      )}
 
       <Card className="p-6">
         <div className="flex items-center justify-between mb-6">
@@ -3422,7 +3427,7 @@ function DefaultRateSettings() {
       </div>
 
       {showHistory && <RateHistoryModal onClose={() => setShowHistory(false)} />}
-    </motion.div>
+    </div>
   );
 }
 
@@ -3431,7 +3436,7 @@ function RateHistoryModal({ onClose }: { onClose: () => void }) {
   
   return (
     <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-      <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
         <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
           <h2 className="text-lg font-bold text-slate-900 dark:text-white">Rate History</h2>
           <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">
@@ -3459,7 +3464,7 @@ function RateHistoryModal({ onClose }: { onClose: () => void }) {
             )}
           </div>
         </div>
-      </motion.div>
+      </div>
     </div>
   );
 }
@@ -3523,7 +3528,7 @@ function MYAgents({ token, onAgentAdded, onBulkUpload }: { token: string; onAgen
   const currentAgents = filteredAgents.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+    <div className="space-y-4">
       <div className="flex justify-between items-center gap-4">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
@@ -3691,7 +3696,7 @@ function MYAgents({ token, onAgentAdded, onBulkUpload }: { token: string; onAgen
           />
         </>
       )}
-    </motion.div>
+    </div>
   );
 }
 
@@ -3705,6 +3710,8 @@ function Orders({ token, onOrderAdded, initialFilters, onBulkUpload }: { token: 
   const [orderToDelete, setOrderToDelete] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
+  const [selectedOrders, setSelectedOrders] = useState<Set<number>>(new Set());
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   
   // Filter states
   const [filterMYAgent, setFilterMYAgent] = useState('');
@@ -3776,6 +3783,21 @@ function Orders({ token, onOrderAdded, initialFilters, onBulkUpload }: { token: 
     setOrderToDelete(null);
   };
 
+  const handleBulkDelete = () => {
+    if (selectedOrders.size === 0) return;
+    setShowBulkDeleteConfirm(true);
+  };
+
+  const confirmBulkDelete = async () => {
+    selectedOrders.forEach(id => {
+      store.deleteOrder(id);
+    });
+    setSelectedOrders(new Set());
+    setShowBulkDeleteConfirm(false);
+    handleReload();
+    if (onOrderAdded) onOrderAdded();
+  };
+
   const handleEdit = (order: Order) => {
     setEditingOrder(order);
     setFormData({
@@ -3795,6 +3817,9 @@ function Orders({ token, onOrderAdded, initialFilters, onBulkUpload }: { token: 
   useEffect(() => {
     setCurrentPage(1);
   }, [filterMYAgent, filterBDAgent, filterStartDate, filterEndDate, searchTerm]);
+
+  const [sortBy, setSortBy] = useState<'date' | 'amount_bdt' | 'amount_myr'>('date');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   const filteredOrders = orders.filter(order => {
     const matchesMYAgent = filterMYAgent === '' || filterMYAgent === 'all' || order.my_agent_id === parseInt(filterMYAgent);
@@ -3819,28 +3844,86 @@ function Orders({ token, onOrderAdded, initialFilters, onBulkUpload }: { token: 
     
     return matchesMYAgent && matchesBDAgent && matchesDate && matchesSearch;
   }).sort((a, b) => {
-    const dateComparison = String(b.date || '').localeCompare(String(a.date || ''));
-    if (dateComparison !== 0) return dateComparison;
-    return b.id - a.id;
+    let comparison = 0;
+    if (sortBy === 'date') {
+      comparison = String(a.date || '').localeCompare(String(b.date || ''));
+    } else if (sortBy === 'amount_bdt') {
+      comparison = Number(a.amount_bdt) - Number(b.amount_bdt);
+    } else if (sortBy === 'amount_myr') {
+      comparison = Number(a.amount_myr) - Number(b.amount_myr);
+    }
+    
+    if (comparison === 0) comparison = a.id - b.id;
+    return sortOrder === 'desc' ? -comparison : comparison;
   });
 
   const totalPages = Math.ceil(filteredOrders.length / itemsPerPage);
   const currentOrders = filteredOrders.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
+  const handleToggleOrder = (id: number) => {
+    const newSelected = new Set(selectedOrders);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedOrders(newSelected);
+  };
+
+  const handleToggleAll = () => {
+    if (selectedOrders.size === currentOrders.length) {
+      setSelectedOrders(new Set());
+    } else {
+      setSelectedOrders(new Set(currentOrders.map(o => o.id)));
+    }
+  };
+
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+    <div className="space-y-4">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
-        <div className="relative flex-1 max-w-md w-full">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
-          <input 
-            type="text" 
-            placeholder="Search orders..." 
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-slate-900 dark:focus:ring-white outline-none dark:text-white"
-          />
+        <div className="flex flex-1 items-center gap-2 max-w-2xl w-full">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+            <input 
+              type="text" 
+              placeholder="Search orders..." 
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-sm focus:ring-2 focus:ring-slate-900 dark:focus:ring-white outline-none dark:text-white"
+            />
+          </div>
+          
+          <div className="relative flex items-center">
+            <div className="absolute left-3 pointer-events-none text-slate-500 dark:text-slate-400">
+              <ArrowUpDown size={16} />
+            </div>
+            <select
+              value={`${sortBy}-${sortOrder}`}
+              onChange={(e) => {
+                const [newSortBy, newSortOrder] = e.target.value.split('-');
+                setSortBy(newSortBy as any);
+                setSortOrder(newSortOrder as any);
+              }}
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-sm pl-10 pr-10 py-2 outline-none dark:text-white min-w-[200px] appearance-none cursor-pointer focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="date-desc">Newest First</option>
+              <option value="date-asc">Oldest First</option>
+              <option value="amount_bdt-desc">Amount BDT (High to Low)</option>
+              <option value="amount_bdt-asc">Amount BDT (Low to High)</option>
+              <option value="amount_myr-desc">Amount RM (High to Low)</option>
+              <option value="amount_myr-asc">Amount RM (Low to High)</option>
+            </select>
+            <div className="absolute right-3 pointer-events-none text-slate-500 dark:text-slate-400">
+              <ChevronDown size={16} />
+            </div>
+          </div>
         </div>
         <div className="flex items-center gap-2">
+          {selectedOrders.size > 0 && (
+            <Button variant="danger" onClick={handleBulkDelete} className="text-xs py-1.5 whitespace-nowrap gap-2">
+              <Trash2 size={16} /> Delete Selected ({selectedOrders.size})
+            </Button>
+          )}
           <Button variant="outline" onClick={onBulkUpload} className="text-xs py-1.5 whitespace-nowrap gap-2">
             <Download size={16} className="rotate-180" /> Bulk Upload
           </Button>
@@ -3908,6 +3991,14 @@ function Orders({ token, onOrderAdded, initialFilters, onBulkUpload }: { token: 
           <table className="w-full text-left border-collapse">
             <thead className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
               <tr>
+                <th className="px-2 py-2 border-r border-slate-200 dark:border-slate-700 w-8 text-center">
+                  <input 
+                    type="checkbox"
+                    className="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-600 cursor-pointer"
+                    checked={currentOrders.length > 0 && selectedOrders.size === currentOrders.length}
+                    onChange={handleToggleAll}
+                  />
+                </th>
                 <th className="px-2 py-2 text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase w-32 border-r border-slate-200 dark:border-slate-700">Date</th>
                 <th className="px-2 py-2 text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase border-r border-slate-200 dark:border-slate-700">MY Agent</th>
                 <th className="px-2 py-2 text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase border-r border-slate-200 dark:border-slate-700">BD Agent</th>
@@ -3923,6 +4014,14 @@ function Orders({ token, onOrderAdded, initialFilters, onBulkUpload }: { token: 
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {currentOrders.length > 0 ? currentOrders.map(order => (
                 <tr key={order.id} className="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                  <td className="px-2 py-2 text-center border-r border-slate-200 dark:border-slate-700">
+                    <input 
+                      type="checkbox"
+                      className="w-3.5 h-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-600 cursor-pointer"
+                      checked={selectedOrders.has(order.id)}
+                      onChange={() => handleToggleOrder(order.id)}
+                    />
+                  </td>
                   <td className="px-2 py-2 text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap border-r border-slate-200 dark:border-slate-700">{formatDate(order.date)}</td>
                   <td className="px-2 py-2 text-xs font-medium text-slate-900 dark:text-white border-r border-slate-200 dark:border-slate-700">{order.my_agent_name}</td>
                   <td className="px-2 py-2 text-xs text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">{order.bd_agent_name}</td>
@@ -3950,7 +4049,7 @@ function Orders({ token, onOrderAdded, initialFilters, onBulkUpload }: { token: 
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan={9} className="px-4 py-4 text-center text-slate-500 dark:text-slate-400 text-xs">No orders found matching the filters.</td>
+                  <td colSpan={11} className="px-4 py-4 text-center text-slate-500 dark:text-slate-400 text-xs">No orders found matching the filters.</td>
                 </tr>
               )}
             </tbody>
@@ -4117,7 +4216,15 @@ function Orders({ token, onOrderAdded, initialFilters, onBulkUpload }: { token: 
         title="Delete Order"
         message="Are you sure you want to delete this order? This action cannot be undone."
       />
-    </motion.div>
+      
+      <ConfirmationModal
+        isOpen={showBulkDeleteConfirm}
+        onClose={() => setShowBulkDeleteConfirm(false)}
+        onConfirm={confirmBulkDelete}
+        title="Delete Selected Orders"
+        message={`Are you sure you want to delete ${selectedOrders.size} selected order(s)? This action cannot be undone.`}
+      />
+    </div>
   );
 }
 
@@ -4180,7 +4287,7 @@ function BDAgents({ token, onAgentAdded, onBulkUpload }: { token: string; onAgen
   const currentAgents = filteredAgents.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+    <div className="space-y-4">
       <div className="flex justify-between items-center gap-4">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
@@ -4348,7 +4455,7 @@ function BDAgents({ token, onAgentAdded, onBulkUpload }: { token: string; onAgen
           />
         </>
       )}
-    </motion.div>
+    </div>
   );
 }
 
@@ -4495,7 +4602,7 @@ function ConversionTab({ token, onConversionAdded }: { token: string; onConversi
   const currentConversions = conversions.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+    <div className="space-y-4">
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-lg font-bold text-slate-900">RM Convert</h2>
@@ -4718,7 +4825,7 @@ function ConversionTab({ token, onConversionAdded }: { token: string; onConversi
         title="Delete Conversion"
         message="Are you sure you want to delete this conversion record? This action cannot be undone."
       />
-    </motion.div>
+    </div>
   );
 }
 
@@ -4775,7 +4882,7 @@ function Expenses({ token, onExpenseAdded }: { token: string; onExpenseAdded?: (
   const currentExpenses = expenses.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+    <div className="space-y-4">
       <div className="flex justify-between items-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm">
         <div>
           <h2 className="text-xl font-bold text-slate-900 dark:text-white">Expenses</h2>
@@ -4950,7 +5057,683 @@ function Expenses({ token, onExpenseAdded }: { token: string; onExpenseAdded?: (
         title="Delete Expense"
         message="Are you sure you want to delete this expense? This action cannot be undone."
       />
-    </motion.div>
+    </div>
+  );
+}
+
+// --- Loan Component ---
+interface LoanEntity {
+  id: number;
+  name: string;
+}
+
+interface LoanTransaction {
+  id: number;
+  loanId: number;
+  date: string;
+  description: string;
+  drAmount: string;
+  crAmount: string;
+}
+
+function LoanPage() {
+  const [loans, setLoans] = useState<LoanEntity[]>(() => {
+    const saved = localStorage.getItem('demo_loans');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [transactions, setTransactions] = useState<LoanTransaction[]>(() => {
+    const saved = localStorage.getItem('demo_loan_tx');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [activeLoan, setActiveLoan] = useState<LoanEntity | null>(null);
+
+  // General States
+  const [showAddLoan, setShowAddLoan] = useState(false);
+  const [loanName, setLoanName] = useState('');
+  
+  // Ledger states
+  const [isExport, setIsExport] = useState(false);
+  const [showAddTx, setShowAddTx] = useState(false);
+  const [editingTx, setEditingTx] = useState<LoanTransaction | null>(null);
+  const [addTxData, setAddTxData] = useState({ date: new Date().toISOString().split('T')[0], description: '', drAmount: '', crAmount: '' });
+
+  useEffect(() => {
+    localStorage.setItem('demo_loans', JSON.stringify(loans));
+  }, [loans]);
+
+  useEffect(() => {
+    localStorage.setItem('demo_loan_tx', JSON.stringify(transactions));
+  }, [transactions]);
+
+  const handleAddLoan = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!loanName.trim()) return;
+    setLoans([...loans, { id: Date.now(), name: loanName }]);
+    setLoanName('');
+    setShowAddLoan(false);
+  };
+  
+  const handleDeleteLoan = (id: number) => {
+    if (confirm('Are you sure you want to delete this loan and all its transactions?')) {
+      setLoans(loans.filter(l => l.id !== id));
+      setTransactions(transactions.filter(t => t.loanId !== id));
+    }
+  };
+
+  const handleAddTx = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeLoan) return;
+    if (editingTx) {
+      setTransactions(transactions.map(t => t.id === editingTx.id ? {
+        ...t,
+        date: addTxData.date,
+        description: addTxData.description,
+        drAmount: addTxData.drAmount,
+        crAmount: addTxData.crAmount
+      } : t));
+    } else {
+      setTransactions([...transactions, {
+        id: Date.now(),
+        loanId: activeLoan.id,
+        date: addTxData.date,
+        description: addTxData.description,
+        drAmount: addTxData.drAmount,
+        crAmount: addTxData.crAmount
+      }]);
+    }
+    setShowAddTx(false);
+    setEditingTx(null);
+    setAddTxData({ date: new Date().toISOString().split('T')[0], description: '', drAmount: '', crAmount: '' });
+  };
+  
+  const handleEditTx = (t: LoanTransaction) => {
+    setEditingTx(t);
+    setAddTxData({
+      date: t.date,
+      description: t.description,
+      drAmount: t.drAmount,
+      crAmount: t.crAmount
+    });
+    setShowAddTx(true);
+  };
+  
+  const handleDeleteTx = (id: number) => {
+    if (confirm('Are you sure you want to delete this transaction?')) {
+      setTransactions(transactions.filter(t => t.id !== id));
+    }
+  };
+
+  const exportToPDF = () => {
+    if (!activeLoan) return;
+    const doc = new jsPDF();
+    doc.setFontSize(20);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`Loan Ledger: ${activeLoan.name}`, 14, 20);
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 28);
+    
+    let balance = 0;
+    const tableData = transactions.filter(t => t.loanId === activeLoan.id).map(t => {
+      const dr = parseFloat(t.drAmount) || 0;
+      const cr = parseFloat(t.crAmount) || 0;
+      balance += (dr - cr);
+      return [
+        t.date,
+        t.description,
+        t.drAmount || '-',
+        t.crAmount || '-',
+        balance.toLocaleString(undefined, { minimumFractionDigits: 2 })
+      ];
+    });
+
+    autoTable(doc, {
+      startY: 40,
+      head: [['Date', 'Description', 'Cr Amount', 'Dr Amount', 'Balance']],
+      body: tableData,
+      theme: 'striped',
+      headStyles: { fillColor: [15, 23, 42] }
+    });
+
+    doc.save(`loan_ledger_${activeLoan.name}.pdf`);
+  };
+
+  const exportToExcel = () => {
+    if (!activeLoan) return;
+    let balance = 0;
+    const tableData = transactions.filter(t => t.loanId === activeLoan.id).map(t => {
+      const dr = parseFloat(t.drAmount) || 0;
+      const cr = parseFloat(t.crAmount) || 0;
+      balance += (dr - cr);
+      return {
+        'Date': t.date,
+        'Description': t.description,
+        'Cr Amount': t.drAmount,
+        'Dr Amount': t.crAmount,
+        'Balance': balance.toFixed(2)
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(tableData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Loan Ledger');
+    XLSX.writeFile(wb, `loan_ledger_${activeLoan.name}.xlsx`);
+  };
+
+  const exportToJPG = async () => {
+    setIsExport(true);
+    await new Promise(r => setTimeout(r, 100));
+
+    const element = document.getElementById('loan-ledger-content');
+    if (element) {
+      try {
+        const width = element.scrollWidth;
+        const height = element.scrollHeight;
+        const dataUrl = await toJpeg(element, {
+          backgroundColor: document.documentElement.classList.contains('dark') ? '#0f172a' : '#ffffff',
+          pixelRatio: 2,
+          width,
+          height,
+          style: { overflow: 'visible', height: height + 'px', width: width + 'px' }
+        });
+        const link = document.createElement('a');
+        link.href = dataUrl;
+        link.download = `loan_ledger_${activeLoan?.name}.jpg`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch (error) {
+        console.error('Export failed:', error);
+      } finally {
+        setIsExport(false);
+      }
+    } else {
+      setIsExport(false);
+    }
+  };
+
+  if (activeLoan) {
+    const loanTxs = transactions.filter(t => t.loanId === activeLoan.id);
+    let runningBalance = 0;
+    
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setActiveLoan(null)} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-full transition-colors text-slate-500">
+              <Plus className="rotate-45 w-6 h-6" />
+            </button>
+            <div>
+              <h2 className="text-base font-bold text-slate-900 dark:text-white">Loan Ledger: {activeLoan.name}</h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Detailed transaction statement.</p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" className="text-xs py-1.5 h-10 gap-2" onClick={exportToPDF}><FileText size={16}/> Export PDF</Button>
+            <Button variant="outline" className="text-xs py-1.5 h-10 gap-2" onClick={exportToExcel}><FileText size={16}/> Export Excel</Button>
+            <Button variant="outline" className="text-xs py-1.5 h-10 gap-2" onClick={exportToJPG}><FileText size={16}/> Export JPG</Button>
+          </div>
+        </div>
+
+        <Card id="loan-ledger-content" className={cn("p-6", isExport ? "rounded-none border-0 shadow-none m-0 max-w-4xl" : "")}>
+          <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-800 pb-4 mb-4">
+            <div>
+              <h1 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">LOAN LEDGER</h1>
+              <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">{activeLoan.name}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Generated On</p>
+              <p className="text-sm font-mono text-slate-900 dark:text-white">{new Date().toLocaleString()}</p>
+            </div>
+          </div>
+
+          <div className={cn(isExport ? "" : "overflow-x-auto")}>
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
+                <tr>
+                  <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700 w-32">Date</th>
+                  <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700">Description</th>
+                  <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700 text-right">Cr Amount</th>
+                  <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700 text-right">Dr Amount</th>
+                  <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700 text-right">Balance</th>
+                  {!isExport && <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-12 text-center"></th>}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {loanTxs.map((t) => {
+                  const dr = parseFloat(t.drAmount) || 0;
+                  const cr = parseFloat(t.crAmount) || 0;
+                  runningBalance += (dr - cr);
+                  return (
+                    <tr key={t.id} className="border-b border-slate-200 dark:border-slate-700 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                      <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-500">{t.date}</td>
+                      <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white">{t.description || '-'}</td>
+                      <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-900 dark:text-white text-right">{t.drAmount || '-'}</td>
+                      <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-900 dark:text-white text-right">{t.crAmount || '-'}</td>
+                      <td className={cn("px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-xs font-bold text-right", runningBalance >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+                        {runningBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      {!isExport && (
+                        <td className="px-2 py-2 text-center">
+                          <div className="flex justify-center gap-1">
+                            <button onClick={() => handleEditTx(t)} className="p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-indigo-600 rounded-md transition-colors flex justify-center">
+                              <Edit size={14} />
+                            </button>
+                            <button onClick={() => handleDeleteTx(t.id)} className="p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-red-600 rounded-md transition-colors flex justify-center">
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+                {loanTxs.length === 0 && (
+                  <tr>
+                    <td colSpan={isExport ? 5 : 6} className="px-4 py-8 text-center text-slate-500 text-xs text-muted-foreground">No transactions found for this loan.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          
+          {!isExport && (
+            <div className="mt-4 flex justify-end items-center">
+              <Button onClick={() => setShowAddTx(true)} variant="outline" className="text-xs py-1.5 h-8 gap-1"><Plus size={14}/> Add Row</Button>
+            </div>
+          )}
+        </Card>
+
+        {showAddTx && (
+          <div className="fixed inset-0 bg-slate-50 dark:bg-slate-900 z-50 overflow-y-auto">
+            <div className="max-w-xl mx-auto p-4 md:p-6 min-h-screen flex flex-col">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white">{editingTx ? 'Edit Transaction' : 'Add Transaction'}</h2>
+                <button onClick={() => { setShowAddTx(false); setEditingTx(null); }} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors"><Plus className="rotate-45 w-6 h-6 text-slate-600 dark:text-slate-400" /></button>
+              </div>
+              <Card className="p-6">
+                <form onSubmit={handleAddTx} className="space-y-4">
+                  <Input label="Date" type="date" value={addTxData.date} onChange={(e) => setAddTxData({...addTxData, date: e.target.value})} required />
+                  <Input label="Description" value={addTxData.description} onChange={(e) => setAddTxData({...addTxData, description: e.target.value})} />
+                  <Input label="Cr Amount" type="number" step="any" value={addTxData.drAmount} onChange={(e) => setAddTxData({...addTxData, drAmount: e.target.value})} placeholder="0.00" />
+                  <Input label="Dr Amount" type="number" step="any" value={addTxData.crAmount} onChange={(e) => setAddTxData({...addTxData, crAmount: e.target.value})} placeholder="0.00" />
+                  <div className="flex gap-2 pt-4 border-t border-slate-100 dark:border-slate-700">
+                    <Button variant="outline" className="flex-1" onClick={() => { setShowAddTx(false); setEditingTx(null); }} type="button">Cancel</Button>
+                    <Button type="submit" className="flex-1">{editingTx ? 'Update' : 'Save'}</Button>
+                  </div>
+                </form>
+              </Card>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-base font-bold text-slate-900 dark:text-white">Loans</h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400">Manage individual loans and ledgers.</p>
+        </div>
+        <Button onClick={() => setShowAddLoan(true)} className="text-xs py-1.5 h-10 gap-2"><Plus size={16}/> Add Loan</Button>
+      </div>
+
+      <Card className="p-0 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
+              <tr>
+                <th className="px-4 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700">Name</th>
+                <th className="px-4 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700 text-right">Current Balance</th>
+                <th className="px-4 py-3 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {loans.map(loan => {
+                const loanTxs = transactions.filter(t => t.loanId === loan.id);
+                const balance = loanTxs.reduce((sum, t) => sum + (parseFloat(t.drAmount) || 0) - (parseFloat(t.crAmount) || 0), 0);
+                return (
+                  <tr key={loan.id} className="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                    <td className="px-4 py-3 text-sm font-medium text-slate-900 dark:text-white border-r border-slate-200 dark:border-slate-700">{loan.name}</td>
+                    <td className={cn("px-4 py-3 text-sm font-bold text-right border-r border-slate-200 dark:border-slate-700", balance >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+                      {balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex justify-end gap-2">
+                        <button onClick={() => setActiveLoan(loan)} className="px-3 py-1 flex items-center gap-1.5 text-xs font-medium text-white bg-indigo-500 hover:bg-indigo-600 rounded shadow-sm transition-colors">
+                          <Eye size={14} /> View Ledger
+                        </button>
+                        <button onClick={() => handleDeleteLoan(loan.id)} className="p-1 px-2 text-slate-400 hover:bg-red-50 hover:text-red-600 rounded transition-colors" title="Delete Loan">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {loans.length === 0 && (
+                <tr>
+                  <td colSpan={3} className="px-4 py-8 text-center text-slate-500 text-sm text-muted-foreground">No loans found. Create one to get started.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      {showAddLoan && (
+        <div className="fixed inset-0 bg-slate-50 dark:bg-slate-900 z-50 overflow-y-auto">
+          <div className="max-w-xl mx-auto p-4 md:p-6 min-h-screen flex flex-col">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Add New Loan</h2>
+              <button onClick={() => setShowAddLoan(false)} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors"><Plus className="rotate-45 w-6 h-6 text-slate-600 dark:text-slate-400" /></button>
+            </div>
+            <Card className="p-6">
+              <form onSubmit={handleAddLoan} className="space-y-4">
+                <Input label="Person or Entity Name" value={loanName} onChange={(e) => setLoanName(e.target.value)} required placeholder="e.g. John Doe" />
+                <div className="flex gap-2 pt-4 border-t border-slate-100 dark:border-slate-700">
+                  <Button variant="outline" className="flex-1" onClick={() => setShowAddLoan(false)} type="button">Cancel</Button>
+                  <Button type="submit" className="flex-1">Save</Button>
+                </div>
+              </form>
+            </Card>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- Calculation Component ---
+function CalculationPage() {
+  const [isExport, setIsExport] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingRowId, setEditingRowId] = useState<number | null>(null);
+  const [addFormData, setAddFormData] = useState({ bdTk: '', rate: '', payment: '', lastDue: '' });
+  const [rows, setRows] = useState(() => {
+    const saved = localStorage.getItem('demo_calculation_rows');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      } catch (e) {
+        console.error("Failed to parse saved calculation rows");
+      }
+    }
+    return [{ id: Date.now(), bdTk: '', rate: '', payment: '', lastDue: '' }];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('demo_calculation_rows', JSON.stringify(rows));
+  }, [rows]);
+
+  const submitRow = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (editingRowId) {
+      setRows(rows.map(r => r.id === editingRowId ? {
+        ...r,
+        bdTk: addFormData.bdTk,
+        rate: addFormData.rate,
+        payment: addFormData.payment,
+        lastDue: addFormData.lastDue
+      } : r));
+    } else {
+      setRows([...rows, {
+        id: Date.now(),
+        bdTk: addFormData.bdTk,
+        rate: addFormData.rate,
+        payment: addFormData.payment,
+        lastDue: addFormData.lastDue
+      }]);
+    }
+    setShowAddModal(false);
+    setEditingRowId(null);
+    setAddFormData({ bdTk: '', rate: '', payment: '', lastDue: '' });
+  };
+
+  const handleEditRowClick = (r: any) => {
+    setEditingRowId(r.id);
+    setAddFormData({
+      bdTk: r.bdTk,
+      rate: r.rate,
+      payment: r.payment,
+      lastDue: r.lastDue
+    });
+    setShowAddModal(true);
+  };
+
+  const updateRow = (id: number, field: string, value: string) => {
+    setRows(rows.map(r => r.id === id ? { ...r, [field]: value } : r));
+  };
+  
+  const removeRow = (id: number) => {
+    if (rows.length === 1) return;
+    setRows(rows.filter(r => r.id !== id));
+  };
+
+  const clearAll = () => {
+    setRows([{ id: Date.now(), bdTk: '', rate: '', payment: '', lastDue: '' }]);
+  };
+
+  let runningBalance = 0;
+  const calculatedRows = rows.map((r, index) => {
+    const bdTk = parseFloat(r.bdTk) || 0;
+    const rate = parseFloat(r.rate) || 0;
+    const payment = parseFloat(r.payment) || 0;
+    
+    // Last Due logic: User enters it manually to override, or else inherits from runningBalance
+    const parsedLastDue = parseFloat(r.lastDue);
+    const lastDue = !isNaN(parsedLastDue) ? parsedLastDue : (index === 0 ? 0 : runningBalance);
+    
+    // BD TK / Rate = RM
+    const rm = rate > 0 ? (bdTk / rate) : 0;
+    
+    // RM + Last Due - Payment = Balance
+    const balance = rm + lastDue - payment;
+    runningBalance = balance;
+    
+    return {
+      ...r,
+      sl: index + 1,
+      lastDue,
+      rm,
+      balance
+    };
+  });
+
+  const exportToPDF = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(20);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`Juel Money Transfer Apps: Calculation Report`, 14, 20);
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 28);
+    
+    const tableData = calculatedRows.map(r => [
+      r.sl,
+      r.bdTk || '-',
+      r.rate || '-',
+      r.rm.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      r.payment || '-',
+      r.lastDue || '-',
+      r.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    ]);
+
+    autoTable(doc, {
+      startY: 40,
+      head: [['SL', 'BD TK', 'Rate', 'RM', 'Payment', 'Last Due', 'Balance']],
+      body: tableData,
+      theme: 'striped',
+      headStyles: { fillColor: [15, 23, 42] }
+    });
+
+    doc.save('calculation_report.pdf');
+  };
+
+  const exportToExcel = () => {
+    const tableData = calculatedRows.map(r => ({
+      'SL': r.sl,
+      'BD TK': r.bdTk,
+      'Rate': r.rate,
+      'RM': r.rm.toFixed(2),
+      'Payment': r.payment,
+      'Last Due': r.lastDue,
+      'Balance': r.balance.toFixed(2)
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(tableData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Calculations');
+    XLSX.writeFile(wb, 'calculation_report.xlsx');
+  };
+
+  const exportToJPG = async () => {
+    setIsExport(true);
+    await new Promise(r => setTimeout(r, 100));
+
+    const element = document.getElementById('calculation-content');
+    if (element) {
+      try {
+        const width = element.scrollWidth;
+        const height = element.scrollHeight;
+        const dataUrl = await toJpeg(element, {
+          backgroundColor: document.documentElement.classList.contains('dark') ? '#0f172a' : '#ffffff',
+          pixelRatio: 2,
+          width,
+          height,
+          style: { overflow: 'visible', height: height + 'px', width: width + 'px' }
+        });
+        const link = document.createElement('a');
+        link.href = dataUrl;
+        link.download = 'calculation_report.jpg';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } catch (error) {
+        console.error('Export failed:', error);
+      } finally {
+        setIsExport(false);
+      }
+    } else {
+      setIsExport(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+        <div>
+          <h2 className="text-base font-bold text-slate-900 dark:text-white">Calculator</h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400">Custom RM and Balance calculations.</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" className="text-xs py-1.5 h-10 gap-2" onClick={exportToPDF}><FileText size={16}/> Export PDF</Button>
+          <Button variant="outline" className="text-xs py-1.5 h-10 gap-2" onClick={exportToExcel}><FileText size={16}/> Export Excel</Button>
+          <Button variant="outline" className="text-xs py-1.5 h-10 gap-2" onClick={exportToJPG}><FileText size={16}/> Export JPG</Button>
+        </div>
+      </div>
+
+      <Card id="calculation-content" className={cn("p-6", isExport ? "rounded-none border-0 shadow-none m-0 max-w-4xl" : "")}>
+        <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-800 pb-4 mb-4">
+          <div>
+            <h1 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">CALCULATION REPORT</h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">Juel Money Transfer Apps</p>
+          </div>
+          <div className="text-right">
+            <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Generated On</p>
+            <p className="text-sm font-mono text-slate-900 dark:text-white">{new Date().toLocaleString()}</p>
+          </div>
+        </div>
+
+        <div className={cn(isExport ? "" : "overflow-x-auto")}>
+          <table className="w-full text-left border-collapse">
+            <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
+              <tr>
+                <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700 w-12 text-center">SL</th>
+                <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700">BD TK</th>
+                <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700 w-24">Rate</th>
+                <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700 text-right">RM</th>
+                <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700">Payment</th>
+                <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700">Last Due</th>
+                <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700 text-right">Balance</th>
+                {!isExport && <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-12 text-center"></th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {calculatedRows.map((r) => (
+                <tr key={r.id} className="border-b border-slate-200 dark:border-slate-700 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                  <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-500 text-center">{r.sl}</td>
+                  <td className="px-1 py-1 border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 relative">
+                    <div className="text-xs px-2 py-1 text-slate-900 dark:text-white">{r.bdTk || '-'}</div>
+                  </td>
+                  <td className="px-1 py-1 border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 relative">
+                    <div className="text-xs px-2 py-1 text-slate-900 dark:text-white">{r.rate || '-'}</div>
+                  </td>
+                  <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-xs font-bold text-indigo-600 dark:text-indigo-400 text-right bg-slate-50/50 dark:bg-slate-800/50">
+                    {r.rm.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </td>
+                  <td className="px-1 py-1 border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 relative">
+                    <div className="text-xs px-2 py-1 text-slate-900 dark:text-white">{r.payment || '-'}</div>
+                  </td>
+                  <td className="px-1 py-1 border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 relative">
+                    <div className="text-xs px-2 py-1 text-slate-900 dark:text-white text-right font-medium">{r.lastDue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '-'}</div>
+                  </td>
+                  <td className={cn("px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-xs font-bold text-right bg-slate-50/50 dark:bg-slate-800/50", r.balance >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+                    {r.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </td>
+                  {!isExport && (
+                    <td className="px-2 py-2 text-center">
+                      <div className="flex justify-center gap-1">
+                        <button onClick={() => handleEditRowClick(r)} className="p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-indigo-600 rounded-md transition-colors flex justify-center">
+                          <Edit size={14} />
+                        </button>
+                        <button onClick={() => removeRow(r.id)} disabled={rows.length === 1} className="p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-red-600 rounded-md transition-colors disabled:opacity-30 flex justify-center">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {!isExport && (
+          <div className="mt-4 flex justify-between items-center">
+            <Button onClick={clearAll} variant="outline" className="text-xs py-1.5 h-8 gap-1 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200 dark:border-red-900/30 dark:hover:bg-red-900/20"><Trash2 size={14}/> Clear All</Button>
+            <Button onClick={() => setShowAddModal(true)} variant="outline" className="text-xs py-1.5 h-8 gap-1"><Plus size={14}/> Add Row</Button>
+          </div>
+        )}
+      </Card>
+
+      {showAddModal && (
+        <div className="fixed inset-0 bg-slate-50 dark:bg-slate-900 z-50 overflow-y-auto">
+          <div className="max-w-xl mx-auto p-4 md:p-6 min-h-screen flex flex-col">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-slate-900 dark:text-white">{editingRowId ? 'Edit Calculation Row' : 'Add Calculation Row'}</h2>
+              <button onClick={() => { setShowAddModal(false); setEditingRowId(null); }} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors"><Plus className="rotate-45 w-6 h-6 text-slate-600 dark:text-slate-400" /></button>
+            </div>
+            <Card className="p-6">
+              <form onSubmit={submitRow} className="space-y-4">
+                <Input label="BD TK" type="number" step="any" value={addFormData.bdTk} onChange={(e) => setAddFormData({...addFormData, bdTk: e.target.value})} placeholder="0.00" />
+                <Input label="Rate" type="number" step="any" value={addFormData.rate} onChange={(e) => setAddFormData({...addFormData, rate: e.target.value})} placeholder="0.00" />
+                <Input label="Payment" type="number" step="any" value={addFormData.payment} onChange={(e) => setAddFormData({...addFormData, payment: e.target.value})} placeholder="0.00" />
+                <Input label="Last Due" type="number" step="any" value={addFormData.lastDue} onChange={(e) => setAddFormData({...addFormData, lastDue: e.target.value})} placeholder="0.00" helpText="Overrides the running balance for this row if provided." />
+                <div className="flex gap-2 pt-4 border-t border-slate-100 dark:border-slate-700">
+                  <Button variant="outline" className="flex-1" onClick={() => { setShowAddModal(false); setEditingRowId(null); }} type="button">Cancel</Button>
+                  <Button type="submit" className="flex-1">{editingRowId ? 'Update Row' : 'Add Row'}</Button>
+                </div>
+              </form>
+            </Card>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -5511,7 +6294,7 @@ function Reports({ token, stats, initialFilters }: { token: string; stats: any; 
   };
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+    <div className="space-y-4">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
         <div>
           <h2 className="text-base font-bold text-slate-900 dark:text-white">Financial Reports</h2>
@@ -5586,6 +6369,6 @@ function Reports({ token, stats, initialFilters }: { token: string; stats: any; 
           </div>
         </>
       )}
-    </motion.div>
+    </div>
   );
 }

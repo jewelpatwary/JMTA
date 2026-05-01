@@ -243,7 +243,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (index !== -1) {
       history[index].rate = rate;
     } else {
-      history.push({ id: Date.now(), rate, date: targetDate });
+      history.push({ id: Date.now() + Math.round(Math.random() * 1000), rate, date: targetDate });
     }
     
     save('rf_rate_history', history);
@@ -352,7 +352,7 @@ export const store = {
     const bd_agent_id = Number(data.bd_agent_id);
     const my_agent_name = myAgents.find(a => a.id === my_agent_id)?.name || 'Unknown';
     const bd_agent_name = bdAgents.find(a => a.id === bd_agent_id)?.name || 'Unknown';
-    const orderId = Date.now();
+    const orderId = Date.now() + Math.floor(Math.random() * 1000);
     const newOrder = { 
       ...data, 
       id: orderId, 
@@ -370,7 +370,7 @@ export const store = {
     // Handle Charge as Expense
     if (newOrder.charge > 0) {
       const newExpense: Expense = {
-        id: Date.now() + 1,
+        id: Date.now() + Math.floor(Math.random() * 1000) + 1,
         amount_myr: newOrder.charge,
         currency: 'BDT',
         category: 'Order Charge',
@@ -415,7 +415,7 @@ export const store = {
         updatedExpenses = updatedExpenses.filter(e => e.order_id !== id);
         if (updatedOrder.charge > 0) {
           updatedExpenses.push({
-            id: Date.now() + 2,
+            id: Date.now() + Math.floor(Math.random() * 1000) + 2,
             amount_myr: updatedOrder.charge,
             currency: 'BDT',
             category: 'Order Charge',
@@ -525,7 +525,7 @@ export const store = {
     const payments = load('rf_my_payments');
     const newPayment = { 
       ...data, 
-      id: Date.now(), 
+      id: Date.now() + Math.floor(Math.random() * 1000), 
       amount_myr: Number(data.amount_myr), 
       my_agent_id: Number(data.my_agent_id)
     };
@@ -613,7 +613,7 @@ export const store = {
     const payments = load('rf_bd_payments');
     const newPayment = { 
       ...data, 
-      id: Date.now(), 
+      id: Date.now() + Math.floor(Math.random() * 1000), 
       amount_bdt: Number(data.amount_bdt), 
       bd_agent_id: Number(data.bd_agent_id)
     };
@@ -668,8 +668,7 @@ export const store = {
     
     const newItem = { 
       ...data, 
-      id: Date.now(), 
-      amount_myr: Number(data.amount_myr), 
+      id: Date.now() + Math.floor(Math.random() * 1000), 
       rate: Number(data.rate), 
       amount_bdt: Number(data.amount_bdt), 
       bank_charges: Number(data.bank_charges),
@@ -719,7 +718,7 @@ export const store = {
   getExpenses: () => useAppStore.getState().expenses,
   addExpense: (data: any) => {
     const items = load('rf_expenses');
-    const newItem = { ...data, id: Date.now(), amount_myr: Number(data.amount_myr) };
+    const newItem = { ...data, id: Date.now() + Math.floor(Math.random() * 1000), amount_myr: Number(data.amount_myr) };
     save('rf_expenses', [...items, newItem]);
     useAppStore.getState().refresh();
     return newItem;
@@ -751,7 +750,7 @@ export const store = {
     const items = load('rf_withdrawals');
     const newItem = { 
       ...data, 
-      id: Date.now(), 
+      id: Date.now() + Math.floor(Math.random() * 1000), 
       amount: Number(data.amount),
       agent_id: Number(data.agent_id)
     };
@@ -785,7 +784,7 @@ export const store = {
     const items = load('rf_deposits');
     const newItem = { 
       ...data, 
-      id: Date.now(), 
+      id: Date.now() + Math.floor(Math.random() * 1000), 
       amount: Number(data.amount),
       agent_id: Number(data.agent_id)
     };
