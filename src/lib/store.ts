@@ -85,7 +85,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       total_payments_myr: myPayments.filter(p => p.my_agent_id === agent.id).reduce((sum, p) => sum + Number(p.amount_myr), 0),
       initial_balance: Number(agent.initial_balance) || 0,
       outstanding: calculateOutstanding('MY', agent, orders, myPayments)
-    })).sort((a, b) => a.name.localeCompare(b.name));
+    })).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
 
     const bdAgents = bdAgentsRaw.map(agent => {
       const agentConversions = conversions.filter(c => c.pay_to_bd_agent_id === agent.id);
@@ -98,7 +98,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         initial_balance: Number(agent.initial_balance) || 0,
         outstanding: calculateOutstanding('BD', agent, orders, bdPayments, conversions)
       };
-    }).sort((a, b) => a.name.localeCompare(b.name));
+    }).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
 
     const today = new Date().toISOString().split('T')[0];
     const yesterdayDate = new Date();
@@ -157,12 +157,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     const agentsOutstanding = myAgents.map(agent => ({ 
       name: agent.name, 
       outstanding: Number(agent.outstanding.toFixed(2)) 
-    })).filter(a => a.outstanding !== 0).sort((a, b) => a.name.localeCompare(b.name));
+    })).filter(a => a.outstanding !== 0).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
 
     const bdAgentsOutstanding = bdAgents.map(agent => ({ 
       name: agent.name, 
       outstanding: Number(agent.outstanding.toFixed(2)) 
-    })).filter(a => a.outstanding !== 0).sort((a, b) => a.name.localeCompare(b.name));
+    })).filter(a => a.outstanding !== 0).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
 
     const bankBalances = collectionMethods.map(m => {
       const initialBalance = Number(m.initial_balance) || 0;
@@ -341,7 +341,7 @@ export const store = {
       ...o,
       my_agent_name: myAgents.find(a => a.id === o.my_agent_id)?.name || 'Unknown',
       bd_agent_name: bdAgents.find(a => a.id === o.bd_agent_id)?.name || 'Unknown',
-    })).sort((a, b) => b.date.localeCompare(a.date));
+    })).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
   },
 
   addOrder: (data: any) => {
@@ -516,7 +516,7 @@ export const store = {
     const { myPayments } = useAppStore.getState();
     return myPayments
       .filter(p => p.my_agent_id === Number(agentId))
-      .sort((a, b) => b.date.localeCompare(a.date));
+      .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
   },
 
   getAllMYPayments: () => useAppStore.getState().myPayments,
@@ -589,7 +589,7 @@ export const store = {
       }));
 
     return [...bdPayments.filter(p => p.bd_agent_id === Number(agentId)), ...conversionPayments]
-      .sort((a, b) => b.date.localeCompare(a.date));
+      .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
   },
 
   getAllBDPayments: () => {
@@ -850,7 +850,7 @@ export const store = {
         withdraw: Number(w.amount),
         note: w.note || ''
       }))
-    ].sort((a, b) => a.date.localeCompare(b.date));
+    ].sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
 
     let balance = 0;
     
@@ -1005,7 +1005,7 @@ export const store = {
     }
 
     if (type === 'orders') {
-      const data = filter(orders).sort((a, b) => b.date.localeCompare(a.date)).map(o => ({
+      const data = filter(orders).sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))).map(o => ({
         date: o.date,
         my_agent: myAgents.find(a => a.id === o.my_agent_id)?.name || '-',
         bd_agent: bdAgents.find(a => a.id === o.bd_agent_id)?.name || '-',
@@ -1038,7 +1038,7 @@ export const store = {
         }))
         .filter(p => p.agentObj);
 
-      const data = [...myP, ...bdP, ...convP].sort((a, b) => a.date.localeCompare(b.date)).map(p => ({
+      const data = [...myP, ...bdP, ...convP].sort((a, b) => String(a.date || '').localeCompare(String(b.date || ''))).map(p => ({
         date: p.date,
         agent: p.agentObj?.name || '-',
         side: p.side,
@@ -1216,7 +1216,7 @@ export const store = {
               credit: Number(p.amount_myr) 
             }))
           ].sort((a, b) => {
-            const dateComparison = a.date.localeCompare(b.date);
+            const dateComparison = String(a.date || '').localeCompare(String(b.date || ''));
             if (dateComparison !== 0) return dateComparison;
             return a.id - b.id;
           });
@@ -1254,7 +1254,7 @@ export const store = {
               credit: Number(c.total_bd_received || (Number(c.amount_bdt) + (c.commission_amount || 0)))
             }))
           ].sort((a, b) => {
-            const dateComparison = a.date.localeCompare(b.date);
+            const dateComparison = String(a.date || '').localeCompare(String(b.date || ''));
             if (dateComparison !== 0) return dateComparison;
             return a.id - b.id;
           });

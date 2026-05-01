@@ -310,8 +310,8 @@ const PaymentModal = ({
     if (isOpen && agent) {
       const filtered = orders.filter(o => type === 'MY' ? o.my_agent_id === agent.id : o.bd_agent_id === agent.id);
       // Prioritize unpaid orders and sort by date descending
-      const unpaid = filtered.filter(o => o.status !== 'paid').sort((a, b) => b.date.localeCompare(a.date));
-      const paid = filtered.filter(o => o.status === 'paid').sort((a, b) => b.date.localeCompare(a.date));
+      const unpaid = filtered.filter(o => o.status !== 'paid').sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+      const paid = filtered.filter(o => o.status === 'paid').sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
       
       setRecentOrders([...unpaid, ...paid]);
 
@@ -1561,7 +1561,7 @@ function MethodLedgerView({ agentId, agentType, methodName, subMethodName, onBac
         rawType: 'withdrawal'
       }))
     ].sort((a, b) => {
-      const dateComp = a.date.localeCompare(b.date);
+      const dateComp = String(a.date || '').localeCompare(String(b.date || ''));
       if (dateComp !== 0) return dateComp;
       if ('isInitial' in a && a.isInitial) return -1;
       if ('isInitial' in b && b.isInitial) return 1;
@@ -3427,7 +3427,7 @@ function DefaultRateSettings() {
 }
 
 function RateHistoryModal({ onClose }: { onClose: () => void }) {
-  const history = [...store.getRateHistory()].sort((a, b) => b.date.localeCompare(a.date));
+  const history = [...store.getRateHistory()].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
   
   return (
     <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
@@ -3819,7 +3819,7 @@ function Orders({ token, onOrderAdded, initialFilters, onBulkUpload }: { token: 
     
     return matchesMYAgent && matchesBDAgent && matchesDate && matchesSearch;
   }).sort((a, b) => {
-    const dateComparison = b.date.localeCompare(a.date);
+    const dateComparison = String(b.date || '').localeCompare(String(a.date || ''));
     if (dateComparison !== 0) return dateComparison;
     return b.id - a.id;
   });
@@ -4735,7 +4735,7 @@ function Expenses({ token, onExpenseAdded }: { token: string; onExpenseAdded?: (
 
   const filteredExpenses = expenses
     .filter(e => e.currency === activeCurrency)
-    .sort((a, b) => b.date.localeCompare(a.date));
+    .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
