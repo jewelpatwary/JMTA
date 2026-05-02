@@ -1,12 +1,35 @@
 import { create } from 'zustand';
 import { saveAs } from 'file-saver';
 import { MYAgent, BDAgent, Order, MYPayment, BDPayment, Conversion, Expense, User, CollectionMethod, Withdrawal, Deposit, RateHistory } from '../types';
+import { db, auth } from './firebase';
+import { 
+  collection, 
+  onSnapshot, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  doc, 
+  getDocs, 
+  query, 
+  where,
+  setDoc,
+  getDoc,
+  serverTimestamp,
+  orderBy
+} from 'firebase/firestore';
+import { handleFirestoreError, OperationType } from './firebaseUtils';
 
-// Helper to load/save from localStorage
-import { blobLoad, blobSave } from './blob';
-const load = blobLoad;
-const save = blobSave;
+// Local storage helpers
+const load = (key: string) => {
+  const data = localStorage.getItem(key);
+  return data ? JSON.parse(data) : [];
+};
 
+const save = (key: string, data: any) => {
+  localStorage.setItem(key, JSON.stringify(data));
+};
+
+// Helper to calculate outstanding balances
 const calculateOutstanding = (type: 'MY' | 'BD', agent: any, orders: any[], payments: any[], conversions: any[] = []) => {
   const initialBalance = Number(agent.initial_balance) || 0;
   
@@ -26,7 +49,7 @@ const calculateOutstanding = (type: 'MY' | 'BD', agent: any, orders: any[], paym
 
 // Initial Admin User
 if (!localStorage.getItem('rf_users')) {
-  save('rf_users', [{ id: 1, username: 'admin', password: 'password123', role: 'admin' }]);
+  save('rf_users', [{ id: 1, username: 'admin', password: 'admin123', role: 'admin' }]);
 }
 
 interface AppState {
@@ -46,7 +69,7 @@ interface AppState {
   stats: any;
   
   // Actions
-  refresh: () => void;
+  refresh: () => (() => void);
   setDefaultRate: (rate: number, date?: string) => void;
 }
 
@@ -67,201 +90,190 @@ export const useAppStore = create<AppState>((set, get) => ({
   stats: null,
 
   refresh: () => {
-    const users = load('rf_users');
-    const myAgentsRaw = load('rf_my_agents') as MYAgent[];
-    const bdAgentsRaw = load('rf_bd_agents') as BDAgent[];
-    const orders = load('rf_orders') as Order[];
-    const myPayments = load('rf_my_payments') as MYPayment[];
-    const bdPayments = load('rf_bd_payments') as BDPayment[];
-    const conversions = load('rf_conversions') as Conversion[];
-    const expenses = (load('rf_expenses') as Expense[]).map(e => ({ ...e, currency: e.currency || 'MYR' }));
-    const withdrawals = load('rf_withdrawals') as Withdrawal[];
-    const deposits = load('rf_deposits') as Deposit[];
-    const rateHistory = load('rf_rate_history') as RateHistory[];
-    const collectionMethods = (load('rf_collection_methods') as CollectionMethod[]).map(m => ({ ...m, type: m.type || 'MY' }));
+    // Real-time synchronization using onSnapshot
+    const collections = [
+      { name: 'users', key: 'rf_users' },
+      { name: 'my_agents', key: 'rf_my_agents' },
+      { name: 'bd_agents', key: 'rf_bd_agents' },
+      { name: 'orders', key: 'rf_orders' },
+      { name: 'my_payments', key: 'rf_my_payments' },
+      { name: 'bd_payments', key: 'rf_bd_payments' },
+      { name: 'conversions', key: 'rf_conversions' },
+      { name: 'expenses', key: 'rf_expenses' },
+      { name: 'withdrawals', key: 'rf_withdrawals' },
+      { name: 'deposits', key: 'rf_deposits' },
+      { name: 'collection_methods', key: 'rf_collection_methods' },
+      { name: 'rate_history', key: 'rf_rate_history' }
+    ];
 
-    const myAgents = myAgentsRaw.map(agent => ({
-      ...agent,
-      total_orders_myr: orders.filter(o => o.my_agent_id === agent.id).reduce((sum, o) => sum + Number(o.amount_myr), 0),
-      total_payments_myr: myPayments.filter(p => p.my_agent_id === agent.id).reduce((sum, p) => sum + Number(p.amount_myr), 0),
-      initial_balance: Number(agent.initial_balance) || 0,
-      outstanding: calculateOutstanding('MY', agent, orders, myPayments)
-    })).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    const unsubscribers: (() => void)[] = [];
 
-    const bdAgents = bdAgentsRaw.map(agent => {
-      const agentConversions = conversions.filter(c => c.pay_to_bd_agent_id === agent.id);
-      const conversionTotal = agentConversions.reduce((sum, c) => sum + (c.total_bd_received || (Number(c.amount_bdt) + (c.commission_amount || 0))), 0);
-      
-      return {
+    // This internal refresh calculates stats based on current state
+    const calculateAllStats = () => {
+      const { 
+        users, myAgents: myAgentsRaw, bdAgents: bdAgentsRaw, orders, 
+        myPayments, bdPayments, conversions, expenses, 
+        withdrawals, deposits, rateHistory, collectionMethods 
+      } = useAppStore.getState();
+
+      const myAgents = myAgentsRaw.map(agent => ({
         ...agent,
-        total_orders_bdt: orders.filter(o => o.bd_agent_id === agent.id).reduce((sum, o) => sum + Number(o.amount_bdt), 0),
-        total_payments_bdt: bdPayments.filter(p => p.bd_agent_id === agent.id).reduce((sum, p) => sum + Number(p.amount_bdt), 0) + conversionTotal,
+        total_orders_myr: orders.filter(o => o.my_agent_id === agent.id).reduce((sum, o) => sum + Number(o.amount_myr), 0),
+        total_payments_myr: myPayments.filter(p => p.my_agent_id === agent.id).reduce((sum, p) => sum + Number(p.amount_myr), 0),
         initial_balance: Number(agent.initial_balance) || 0,
-        outstanding: calculateOutstanding('BD', agent, orders, bdPayments, conversions)
+        outstanding: calculateOutstanding('MY', agent, orders, myPayments)
+      })).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+
+      const bdAgents = bdAgentsRaw.map(agent => {
+        const agentConversions = conversions.filter(c => c.pay_to_bd_agent_id === agent.id);
+        const conversionTotal = agentConversions.reduce((sum, c) => sum + (c.total_bd_received || (Number(c.amount_bdt) + (c.commission_amount || 0))), 0);
+        
+        return {
+          ...agent,
+          total_orders_bdt: orders.filter(o => o.bd_agent_id === agent.id).reduce((sum, o) => sum + Number(o.amount_bdt), 0),
+          total_payments_bdt: bdPayments.filter(p => p.bd_agent_id === agent.id).reduce((sum, p) => sum + Number(p.amount_bdt), 0) + conversionTotal,
+          initial_balance: Number(agent.initial_balance) || 0,
+          outstanding: calculateOutstanding('BD', agent, orders, bdPayments, conversions)
+        };
+      }).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+
+      const today = new Date().toISOString().split('T')[0];
+      const yesterdayDate = new Date();
+      yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+      const yesterday = yesterdayDate.toISOString().split('T')[0];
+
+      const avgConvertRate = conversions.reduce((sum, c) => sum + Number(c.total_bd_received || c.amount_bdt), 0) / 
+                            (conversions.reduce((sum, c) => sum + Number(c.amount_myr), 0) || 1);
+
+      const todayOrders = orders.filter(o => o.date === today);
+      const yesterdayOrders = orders.filter(o => o.date === yesterday);
+      
+      const totalBdtOrder = orders.reduce((sum, o) => sum + Number(o.amount_bdt), 0);
+      const totalRmOrderActual = orders.reduce((sum, o) => sum + Number(o.amount_myr), 0);
+      const totalBdtConverted = conversions.reduce((sum, c) => sum + Number(c.total_bd_received || c.amount_bdt), 0);
+      const totalRmConverted = conversions.reduce((sum, c) => sum + Number(c.amount_myr), 0);
+      const currentAvgConvertRate = totalRmConverted > 0 ? totalBdtConverted / totalRmConverted : 0;
+      
+      const totalConvertedRmCalculated = currentAvgConvertRate > 0 ? totalBdtOrder / currentAvgConvertRate : 0;
+      const grossProfit = totalRmOrderActual - totalConvertedRmCalculated;
+      const totalCharges = conversions.reduce((sum, c) => sum + Number(c.bank_charges), 0);
+      const totalExp = expenses.filter(e => e.currency === 'MYR').reduce((sum, e) => sum + Number(e.amount_myr), 0);
+      const netProfit = grossProfit - totalCharges - totalExp;
+
+      const getDailyStats = (dateOrders: Order[], dateExpenses: Expense[], dateConversions: Conversion[]) => {
+        const volMyr = dateOrders.reduce((sum, o) => sum + Number(o.amount_myr), 0);
+        const volBdt = dateOrders.reduce((sum, o) => sum + Number(o.amount_bdt), 0);
+        const exp = dateExpenses.filter(e => e.currency === 'MYR').reduce((sum, e) => sum + Number(e.amount_myr), 0);
+        const charges = dateConversions.reduce((sum, c) => sum + Number(c.bank_charges), 0);
+        const convertedRm = currentAvgConvertRate > 0 ? volBdt / currentAvgConvertRate : 0;
+        return { count: dateOrders.length, volume: volMyr, profit: volMyr - convertedRm - exp - charges, expenses: exp };
       };
-    }).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
 
-    const today = new Date().toISOString().split('T')[0];
-    const yesterdayDate = new Date();
-    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
-    const yesterday = yesterdayDate.toISOString().split('T')[0];
+      const todayPerformance = getDailyStats(todayOrders, expenses.filter(e => e.date === today), conversions.filter(c => c.date === today));
+      const yesterdayPerformance = getDailyStats(yesterdayOrders, expenses.filter(e => e.date === yesterday), conversions.filter(c => c.date === yesterday));
 
-    const todayOrders = orders.filter(o => o.date === today);
-    const yesterdayOrders = orders.filter(o => o.date === yesterday);
-    
-    const totalBdtOrder = orders.reduce((sum, o) => sum + Number(o.amount_bdt), 0);
-    const totalRmOrderActual = orders.reduce((sum, o) => sum + Number(o.amount_myr), 0);
-    
-    const totalBdtConverted = conversions.reduce((sum, c) => sum + Number(c.total_bd_received || c.amount_bdt), 0);
-    const totalRmConverted = conversions.reduce((sum, c) => sum + Number(c.amount_myr), 0);
-    const avgConvertRate = totalRmConverted > 0 ? totalBdtConverted / totalRmConverted : 0;
-    
-    const totalConvertedRmCalculated = avgConvertRate > 0 ? totalBdtOrder / avgConvertRate : 0;
-    const grossProfit = totalRmOrderActual - totalConvertedRmCalculated;
-    const totalCharges = conversions.reduce((sum, c) => sum + Number(c.bank_charges), 0);
-    const totalExp = expenses.filter(e => e.currency === 'MYR').reduce((sum, e) => sum + Number(e.amount_myr), 0);
-    const netProfit = grossProfit - totalCharges - totalExp;
+      const calculateChange = (current: number, previous: number) => previous === 0 ? (current > 0 ? 100 : 0) : ((current - previous) / previous) * 100;
 
-    // Daily Stats for Comparison
-    const getDailyStats = (dateOrders: Order[], dateExpenses: Expense[], dateConversions: Conversion[]) => {
-      const volMyr = dateOrders.reduce((sum, o) => sum + Number(o.amount_myr), 0);
-      const volBdt = dateOrders.reduce((sum, o) => sum + Number(o.amount_bdt), 0);
-      const exp = dateExpenses.filter(e => e.currency === 'MYR').reduce((sum, e) => sum + Number(e.amount_myr), 0);
-      const charges = dateConversions.reduce((sum, c) => sum + Number(c.bank_charges), 0);
-      
-      const convertedRm = avgConvertRate > 0 ? volBdt / avgConvertRate : 0;
-      const profit = volMyr - convertedRm - exp - charges;
-      
-      return { count: dateOrders.length, volume: volMyr, profit, expenses: exp };
+      const bankBalances = collectionMethods.map(m => {
+        const totalInitialBalance = (Number(m.initial_balance) || 0) + m.subItems.reduce((sum, s) => sum + (Number(s.initial_balance) || 0), 0);
+        if (m.type === 'BD') {
+          const inAmount = bdPayments.filter(p => p.payment_method === m.name).reduce((sum, p) => sum + Number(p.amount_bdt), 0);
+          const inAmountManual = deposits.filter(d => d.method_name === m.name && d.agent_type === 'BD').reduce((sum, d) => sum + Number(d.amount), 0);
+          const outAmount = withdrawals.filter(w => w.method_name === m.name && w.agent_type === 'BD').reduce((sum, w) => sum + Number(w.amount), 0);
+          const orderCharges = orders.filter(o => o.bd_agent_id === bdAgentsRaw.find(a => a.name === m.name)?.id).reduce((sum, o) => sum + (Number(o.charge) || 0), 0);
+          return { name: m.name, type: 'BD', balance: totalInitialBalance + inAmount + inAmountManual - outAmount - orderCharges, currency: 'BDT' };
+        }
+        return { 
+          name: m.name, type: 'MY', 
+          balance: totalInitialBalance + myPayments.filter(p => p.payment_method === m.name).reduce((sum, p) => sum + Number(p.amount_myr), 0) +
+                   deposits.filter(d => d.method_name === m.name && d.agent_type === 'MY').reduce((sum, d) => sum + Number(d.amount), 0) -
+                   withdrawals.filter(w => w.method_name === m.name && w.agent_type === 'MY').reduce((sum, w) => sum + Number(w.amount), 0),
+          currency: 'MYR' 
+        };
+      }).filter(b => b.balance !== 0);
+
+      const stats = {
+        today: { count: todayOrders.length, total_myr: todayOrders.reduce((sum, o) => sum + Number(o.amount_myr), 0), total_bdt: todayOrders.reduce((sum, o) => sum + Number(o.amount_bdt), 0) },
+        changes: { count: calculateChange(todayPerformance.count, yesterdayPerformance.count), volume: calculateChange(todayPerformance.volume, yesterdayPerformance.volume), profit: calculateChange(todayPerformance.profit, yesterdayPerformance.profit), expenses: calculateChange(todayPerformance.expenses, yesterdayPerformance.expenses) },
+        netProfit, profitBreakdown: { totalBdtOrder, totalRmOrder: totalRmOrderActual, avgConvertRate: currentAvgConvertRate, totalConvertedRm: totalConvertedRmCalculated, grossProfit, bankCharges: totalCharges, expenses: totalExp, netProfit },
+        myAgentsOutstanding: { agents: myAgents.map(a => ({ name: a.name, outstanding: Number(a.outstanding.toFixed(2)) })).filter(a => a.outstanding !== 0), total: myAgents.reduce((sum, a) => sum + a.outstanding, 0) },
+        bdAgentsOutstanding: { agents: bdAgents.map(a => ({ name: a.name, outstanding: Number(a.outstanding.toFixed(2)) })).filter(a => a.outstanding !== 0), total: bdAgents.reduce((sum, a) => sum + a.outstanding, 0) },
+        bankBalances, expenses: { total_myr: totalExp },
+        recentTransactions: orders.slice(0, 5).map(o => ({ ...o, my_agent_name: myAgents.find(a => a.id === o.my_agent_id)?.name || '-' }))
+      };
+
+      set({ myAgents, bdAgents, stats });
     };
 
-    const todayExpenses = expenses.filter(e => e.date === today);
-    const todayConversions = conversions.filter(c => c.date === today);
-    const yesterdayExpenses = expenses.filter(e => e.date === yesterday);
-    const yesterdayConversions = conversions.filter(c => c.date === yesterday);
-
-    const todayPerformance = getDailyStats(todayOrders, todayExpenses, todayConversions);
-    const yesterdayPerformance = getDailyStats(yesterdayOrders, yesterdayExpenses, yesterdayConversions);
-
-    const calculateChange = (current: number, previous: number) => {
-      if (previous === 0) return current > 0 ? 100 : 0;
-      return ((current - previous) / previous) * 100;
+    // Set up listeners for all collections
+    const setupListener = (collectionName: string, stateKey: string) => {
+      return onSnapshot(collection(db, collectionName), (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ ...doc.data(), firebase_id: doc.id })) as any[];
+        set({ [stateKey]: data } as any);
+        calculateAllStats();
+      }, (error) => handleFirestoreError(error, OperationType.GET, collectionName));
     };
 
-    const changes = {
-      count: calculateChange(todayPerformance.count, yesterdayPerformance.count),
-      volume: calculateChange(todayPerformance.volume, yesterdayPerformance.volume),
-      profit: calculateChange(todayPerformance.profit, yesterdayPerformance.profit),
-      expenses: calculateChange(todayPerformance.expenses, yesterdayPerformance.expenses)
-    };
-
-    const agentsOutstanding = myAgents.map(agent => ({ 
-      name: agent.name, 
-      outstanding: Number(agent.outstanding.toFixed(2)) 
-    })).filter(a => a.outstanding !== 0).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-
-    const bdAgentsOutstanding = bdAgents.map(agent => ({ 
-      name: agent.name, 
-      outstanding: Number(agent.outstanding.toFixed(2)) 
-    })).filter(a => a.outstanding !== 0).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-
-    const bankBalances = collectionMethods.map(m => {
-      const initialBalance = Number(m.initial_balance) || 0;
-      const subItemsInitialBalance = m.subItems.reduce((sum, s) => sum + (Number(s.initial_balance) || 0), 0);
-      const totalInitialBalance = initialBalance + subItemsInitialBalance;
-
-      if (m.type === 'BD') {
-        const inAmount = bdPayments.filter(p => p.payment_method === m.name).reduce((sum, p) => sum + Number(p.amount_bdt), 0);
-        const inAmountManual = deposits.filter(d => d.method_name === m.name && d.agent_type === 'BD').reduce((sum, d) => sum + Number(d.amount), 0);
-        const outAmount = withdrawals.filter(w => w.method_name === m.name && w.agent_type === 'BD').reduce((sum, w) => sum + Number(w.amount), 0);
-        const orderCharges = orders.filter(o => o.bd_agent_id === bdAgentsRaw.find(a => a.name === m.name)?.id).reduce((sum, o) => sum + (Number(o.charge) || 0), 0);
-        return { name: m.name, type: 'BD', balance: totalInitialBalance + inAmount + inAmountManual - outAmount - orderCharges, currency: 'BDT' };
+    // Custom listener for users to seed admin if empty
+    unsubscribers.push(onSnapshot(collection(db, 'users'), (snapshot) => {
+      if (snapshot.empty) {
+        addDoc(collection(db, 'users'), { id: 1, username: 'admin', password: 'admin123', role: 'admin' });
       }
-      
-      const inAmount = myPayments.filter(p => p.payment_method === m.name).reduce((sum, p) => sum + Number(p.amount_myr), 0);
-      const inAmountManual = deposits.filter(d => d.method_name === m.name && d.agent_type === 'MY').reduce((sum, d) => sum + Number(d.amount), 0);
-      const outAmount = withdrawals.filter(w => w.method_name === m.name && w.agent_type === 'MY').reduce((sum, w) => sum + Number(w.amount), 0);
-      return { name: m.name, type: 'MY', balance: totalInitialBalance + inAmount + inAmountManual - outAmount, currency: 'MYR' };
-    }).filter(b => b.balance !== 0);
+      const data = snapshot.docs.map(doc => ({ ...doc.data(), firebase_id: doc.id })) as any[];
+      set({ users: data } as any);
+      calculateAllStats();
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'users')));
+    unsubscribers.push(setupListener('my_agents', 'myAgents'));
+    unsubscribers.push(setupListener('bd_agents', 'bdAgents'));
+    unsubscribers.push(setupListener('orders', 'orders'));
+    unsubscribers.push(setupListener('my_payments', 'myPayments'));
+    unsubscribers.push(setupListener('bd_payments', 'bdPayments'));
+    unsubscribers.push(setupListener('conversions', 'conversions'));
+    unsubscribers.push(setupListener('expenses', 'expenses'));
+    unsubscribers.push(setupListener('withdrawals', 'withdrawals'));
+    unsubscribers.push(setupListener('deposits', 'deposits'));
+    unsubscribers.push(setupListener('collection_methods', 'collectionMethods'));
+    unsubscribers.push(setupListener('rate_history', 'rateHistory'));
 
-    const stats = {
-      today: {
-        count: todayOrders.length,
-        total_myr: todayOrders.reduce((sum, o) => sum + Number(o.amount_myr), 0),
-        total_bdt: todayOrders.reduce((sum, o) => sum + Number(o.amount_bdt), 0)
-      },
-      changes,
-      netProfit,
-      profitBreakdown: {
-        totalBdtOrder,
-        totalRmOrder: totalRmOrderActual,
-        avgConvertRate,
-        totalConvertedRm: totalConvertedRmCalculated,
-        grossProfit,
-        bankCharges: totalCharges,
-        expenses: totalExp,
-        netProfit
-      },
-      myAgentsOutstanding: {
-        agents: agentsOutstanding,
-        total: agentsOutstanding.reduce((sum, a) => sum + a.outstanding, 0)
-      },
-      bdAgentsOutstanding: {
-        agents: bdAgentsOutstanding,
-        total: bdAgentsOutstanding.reduce((sum, a) => sum + a.outstanding, 0)
-      },
-      bankBalances,
-      expenses: {
-        total_myr: totalExp
-      },
-      recentTransactions: orders.slice(0, 5).map(o => ({ ...o, my_agent_name: myAgents.find(a => a.id === o.my_agent_id)?.name || '-' }))
-    };
+    // Listen to global settings
+    unsubscribers.push(onSnapshot(doc(db, 'settings', 'global'), (snapshot) => {
+      if (snapshot.exists()) {
+        set({ defaultRate: snapshot.data().defaultRate });
+      }
+    }));
 
-    set({ 
-      users, 
-      myAgents, 
-      bdAgents, 
-      orders, 
-      myPayments, 
-      bdPayments, 
-      conversions, 
-      expenses, 
-      withdrawals, 
-      deposits,
-      collectionMethods,
-      rateHistory,
-      stats
-    });
+    return () => unsubscribers.forEach(unsub => unsub());
   },
 
-  setDefaultRate: (rate: number, date?: string) => {
+  setDefaultRate: async (rate: number, date?: string) => {
     const targetDate = date || new Date().toISOString().split('T')[0];
-    localStorage.setItem('rf_default_rate', rate.toString());
-    const history = load('rf_rate_history') as RateHistory[];
-    
-    // Update or add history for the selected date
-    const index = history.findIndex(h => h.date === targetDate);
-    if (index !== -1) {
-      history[index].rate = rate;
-    } else {
-      history.push({ id: Date.now() + Math.round(Math.random() * 1000), rate, date: targetDate });
+    try {
+      await setDoc(doc(db, 'settings', 'global'), { defaultRate: rate }, { merge: true });
+      
+      const historyCol = collection(db, 'rate_history');
+      const q = query(historyCol, where('date', '==', targetDate));
+      const snap = await getDocs(q);
+      
+      if (!snap.empty) {
+        await updateDoc(doc(db, 'rate_history', snap.docs[0].id), { rate });
+      } else {
+        await addDoc(historyCol, { id: Date.now(), rate, date: targetDate });
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'rate_history');
     }
-    
-    save('rf_rate_history', history);
-    set({ defaultRate: rate, rateHistory: history });
   }
 }));
 
 // Initialize store data
-useAppStore.getState().refresh();
+// useAppStore.getState().refresh();
 
 export const store = {
   getUsers: () => useAppStore.getState().users,
   
   getMYAgents: () => useAppStore.getState().myAgents,
 
-  addMYAgent: (name: string, initial_balance: number, initial_balance_date?: string) => {
-    const agents = load('rf_my_agents');
+  addMYAgent: async (name: string, initial_balance: number, initial_balance_date?: string) => {
     const newAgent = { 
       id: Date.now(), 
       name, 
@@ -271,37 +283,41 @@ export const store = {
       default_bkash_rate: 0, 
       default_bank_rate: 0 
     };
-    save('rf_my_agents', [...agents, newAgent]);
-    useAppStore.getState().refresh();
+    try {
+      await addDoc(collection(db, 'my_agents'), newAgent);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'my_agents');
+    }
     return newAgent;
   },
 
-  updateMYAgent: (id: number, data: any) => {
-    const agents = load('rf_my_agents') as MYAgent[];
-    const index = agents.findIndex(a => a.id === id);
-    if (index !== -1) {
-      const existing = agents[index];
-      agents[index] = { 
-        ...existing, 
-        ...data, 
-        initial_balance: data.initial_balance !== undefined ? Number(data.initial_balance) : existing.initial_balance,
-        initial_balance_date: data.initial_balance_date || existing.initial_balance_date
-      };
-      save('rf_my_agents', agents);
-      useAppStore.getState().refresh();
+  updateMYAgent: async (id: number, data: any) => {
+    try {
+      const q = query(collection(db, 'my_agents'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        await updateDoc(doc(db, 'my_agents', snap.docs[0].id), data);
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'my_agents');
     }
   },
 
-  deleteMYAgent: (id: number) => {
-    const agents = load('rf_my_agents') as MYAgent[];
-    save('rf_my_agents', agents.filter(a => a.id !== id));
-    useAppStore.getState().refresh();
+  deleteMYAgent: async (id: number) => {
+    try {
+      const q = query(collection(db, 'my_agents'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        await deleteDoc(doc(db, 'my_agents', snap.docs[0].id));
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'my_agents');
+    }
   },
 
   getBDAgents: () => useAppStore.getState().bdAgents,
 
-  addBDAgent: (name: string, initial_balance: number, initial_balance_date?: string) => {
-    const agents = load('rf_bd_agents');
+  addBDAgent: async (name: string, initial_balance: number, initial_balance_date?: string) => {
     const newAgent = { 
       id: Date.now(), 
       name, 
@@ -309,31 +325,36 @@ export const store = {
       initial_balance_date: initial_balance_date || new Date().toISOString().split('T')[0],
       phone: '' 
     };
-    save('rf_bd_agents', [...agents, newAgent]);
-    useAppStore.getState().refresh();
+    try {
+      await addDoc(collection(db, 'bd_agents'), newAgent);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'bd_agents');
+    }
     return newAgent;
   },
 
-  updateBDAgent: (id: number, data: any) => {
-    const agents = load('rf_bd_agents') as BDAgent[];
-    const index = agents.findIndex(a => a.id === id);
-    if (index !== -1) {
-      const existing = agents[index];
-      agents[index] = { 
-        ...existing, 
-        ...data, 
-        initial_balance: data.initial_balance !== undefined ? Number(data.initial_balance) : existing.initial_balance,
-        initial_balance_date: data.initial_balance_date || existing.initial_balance_date
-      };
-      save('rf_bd_agents', agents);
-      useAppStore.getState().refresh();
+  updateBDAgent: async (id: number, data: any) => {
+    try {
+      const q = query(collection(db, 'bd_agents'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        await updateDoc(doc(db, 'bd_agents', snap.docs[0].id), data);
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'bd_agents');
     }
   },
 
-  deleteBDAgent: (id: number) => {
-    const agents = load('rf_bd_agents') as BDAgent[];
-    save('rf_bd_agents', agents.filter(a => a.id !== id));
-    useAppStore.getState().refresh();
+  deleteBDAgent: async (id: number) => {
+    try {
+      const q = query(collection(db, 'bd_agents'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        await deleteDoc(doc(db, 'bd_agents', snap.docs[0].id));
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'bd_agents');
+    }
   },
 
   getOrders: () => {
@@ -345,15 +366,14 @@ export const store = {
     })).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
   },
 
-  addOrder: (data: any) => {
-    const orders = load('rf_orders');
-    const expenses = load('rf_expenses');
+  addOrder: async (data: any) => {
     const { myAgents, bdAgents } = useAppStore.getState();
     const my_agent_id = Number(data.my_agent_id);
     const bd_agent_id = Number(data.bd_agent_id);
     const my_agent_name = myAgents.find(a => a.id === my_agent_id)?.name || 'Unknown';
     const bd_agent_name = bdAgents.find(a => a.id === bd_agent_id)?.name || 'Unknown';
     const orderId = Date.now() + Math.floor(Math.random() * 1000);
+    
     const newOrder = { 
       ...data, 
       id: orderId, 
@@ -366,56 +386,66 @@ export const store = {
       my_agent_name,
       bd_agent_name
     };
-    save('rf_orders', [...orders, newOrder]);
 
-    // Handle Charge as Expense
-    if (newOrder.charge > 0) {
-      const newExpense: Expense = {
-        id: Date.now() + Math.floor(Math.random() * 1000) + 1,
-        amount_myr: newOrder.charge,
-        currency: 'BDT',
-        category: 'Order Charge',
-        date: newOrder.date,
-        note: `Charge for order with ${bd_agent_name}`,
-        order_id: orderId
-      };
-      save('rf_expenses', [...expenses, newExpense]);
+    try {
+      await addDoc(collection(db, 'orders'), newOrder);
+
+      // Handle Charge as Expense
+      if (newOrder.charge > 0) {
+        const newExpense: Expense = {
+          id: Date.now() + Math.floor(Math.random() * 1000) + 1,
+          amount_myr: newOrder.charge,
+          currency: 'BDT',
+          category: 'Order Charge',
+          date: newOrder.date,
+          note: `Charge for order with ${bd_agent_name}`,
+          order_id: orderId
+        };
+        await addDoc(collection(db, 'expenses'), newExpense);
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'orders');
     }
 
-    useAppStore.getState().refresh();
     return newOrder;
   },
 
-  updateOrder: (id: number, data: any) => {
-    const orders = load('rf_orders') as Order[];
-    const expenses = load('rf_expenses') as Expense[];
-    const { myAgents, bdAgents } = useAppStore.getState();
-    let updatedExpenses = [...expenses];
+  updateOrder: async (id: number, data: any) => {
+    const { orders, myAgents, bdAgents } = useAppStore.getState();
+    const order = orders.find(o => o.id === id);
+    if (!order) return;
 
-    const updated = orders.map(o => {
-      if (o.id === id) {
-        const my_agent_id = data.my_agent_id !== undefined ? Number(data.my_agent_id) : o.my_agent_id;
-        const bd_agent_id = data.bd_agent_id !== undefined ? Number(data.bd_agent_id) : o.bd_agent_id;
-        const my_agent_name = myAgents.find(a => a.id === my_agent_id)?.name || 'Unknown';
-        const bd_agent_name = bdAgents.find(a => a.id === bd_agent_id)?.name || 'Unknown';
-        
-        const updatedOrder = { 
-          ...o, 
-          ...data, 
-          amount_bdt: data.amount_bdt !== undefined ? Number(data.amount_bdt) : o.amount_bdt, 
-          rate: data.rate !== undefined ? Number(data.rate) : o.rate, 
-          amount_myr: data.amount_myr !== undefined ? Number(data.amount_myr) : o.amount_myr, 
-          charge: data.charge !== undefined ? Number(data.charge) : (o.charge || 0),
-          my_agent_id,
-          bd_agent_id,
-          my_agent_name,
-          bd_agent_name
-        };
+    const my_agent_id = data.my_agent_id !== undefined ? Number(data.my_agent_id) : order.my_agent_id;
+    const bd_agent_id = data.bd_agent_id !== undefined ? Number(data.bd_agent_id) : order.bd_agent_id;
+    const my_agent_name = myAgents.find(a => a.id === my_agent_id)?.name || 'Unknown';
+    const bd_agent_name = bdAgents.find(a => a.id === bd_agent_id)?.name || 'Unknown';
+
+    const updatedOrder = { 
+      ...order, 
+      ...data, 
+      amount_bdt: data.amount_bdt !== undefined ? Number(data.amount_bdt) : order.amount_bdt, 
+      rate: data.rate !== undefined ? Number(data.rate) : order.rate, 
+      amount_myr: data.amount_myr !== undefined ? Number(data.amount_myr) : order.amount_myr, 
+      charge: data.charge !== undefined ? Number(data.charge) : (order.charge || 0),
+      my_agent_id,
+      bd_agent_id,
+      my_agent_name,
+      bd_agent_name
+    };
+
+    try {
+      const q = query(collection(db, 'orders'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        await updateDoc(doc(db, 'orders', snap.docs[0].id), updatedOrder);
 
         // Update Expense
-        updatedExpenses = updatedExpenses.filter(e => e.order_id !== id);
+        const expQ = query(collection(db, 'expenses'), where('order_id', '==', id));
+        const expSnap = await getDocs(expQ);
+        expSnap.forEach(async (d) => await deleteDoc(d.ref));
+
         if (updatedOrder.charge > 0) {
-          updatedExpenses.push({
+          const newExpense: Expense = {
             id: Date.now() + Math.floor(Math.random() * 1000) + 2,
             amount_myr: updatedOrder.charge,
             currency: 'BDT',
@@ -423,30 +453,33 @@ export const store = {
             date: updatedOrder.date,
             note: `Charge for order with ${bd_agent_name}`,
             order_id: id
-          });
+          };
+          await addDoc(collection(db, 'expenses'), newExpense);
         }
-
-        return updatedOrder;
       }
-      return o;
-    });
-
-    save('rf_orders', updated);
-    save('rf_expenses', updatedExpenses);
-    useAppStore.getState().refresh();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'orders');
+    }
   },
 
-  deleteOrder: (id: number) => {
-    const orders = load('rf_orders') as Order[];
-    const expenses = load('rf_expenses') as Expense[];
-    save('rf_orders', orders.filter(o => o.id !== id));
-    save('rf_expenses', expenses.filter(e => e.order_id !== id));
-    useAppStore.getState().refresh();
+  deleteOrder: async (id: number) => {
+    try {
+      const q = query(collection(db, 'orders'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        await deleteDoc(doc(db, 'orders', snap.docs[0].id));
+        
+        const expQ = query(collection(db, 'expenses'), where('order_id', '==', id));
+        const expSnap = await getDocs(expQ);
+        expSnap.forEach(async (d) => await deleteDoc(d.ref));
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'orders');
+    }
   },
 
   getCollectionMethods: () => useAppStore.getState().collectionMethods,
-  addCollectionMethod: (name: string, type: 'MY' | 'BD', initial_balance?: number, initial_balance_date?: string) => {
-    const methods = load('rf_collection_methods') as CollectionMethod[];
+  addCollectionMethod: async (name: string, type: 'MY' | 'BD', initial_balance?: number, initial_balance_date?: string) => {
     const newMethod = { 
       id: Date.now(), 
       name, 
@@ -455,61 +488,89 @@ export const store = {
       initial_balance_date: initial_balance_date || new Date().toISOString().split('T')[0],
       subItems: [] 
     };
-    save('rf_collection_methods', [...methods, newMethod]);
-    useAppStore.getState().refresh();
+    try {
+      await addDoc(collection(db, 'collection_methods'), newMethod);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'collection_methods');
+    }
     return newMethod;
   },
-  deleteCollectionMethod: (id: number) => {
-    const methods = load('rf_collection_methods') as CollectionMethod[];
-    save('rf_collection_methods', methods.filter(m => m.id !== id));
-    useAppStore.getState().refresh();
-  },
-  updateCollectionMethod: (id: number, data: any) => {
-    const methods = load('rf_collection_methods') as CollectionMethod[];
-    const updated = methods.map(m => m.id === id ? { 
-      ...m, 
-      ...data,
-      initial_balance: data.initial_balance !== undefined ? Number(data.initial_balance) : m.initial_balance,
-      initial_balance_date: data.initial_balance_date || m.initial_balance_date
-    } : m);
-    save('rf_collection_methods', updated);
-    useAppStore.getState().refresh();
-  },
-  addCollectionMethodSubItem: (methodId: number, name: string, initial_balance?: number, initial_balance_date?: string) => {
-    const methods = load('rf_collection_methods') as CollectionMethod[];
-    const method = methods.find(m => m.id === methodId);
-    if (method) {
-      method.subItems.push({ 
-        id: Date.now(), 
-        name,
-        initial_balance: Number(initial_balance) || 0,
-        initial_balance_date: initial_balance_date || new Date().toISOString().split('T')[0]
-      });
-      save('rf_collection_methods', methods);
-      useAppStore.getState().refresh();
+  deleteCollectionMethod: async (id: number) => {
+    try {
+      const q = query(collection(db, 'collection_methods'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        await deleteDoc(doc(db, 'collection_methods', snap.docs[0].id));
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'collection_methods');
     }
   },
-  deleteCollectionMethodSubItem: (methodId: number, subItemId: number) => {
-    const methods = load('rf_collection_methods') as CollectionMethod[];
-    const method = methods.find(m => m.id === methodId);
-    if (method) {
-      method.subItems = method.subItems.filter(s => s.id !== subItemId);
-      save('rf_collection_methods', methods);
-      useAppStore.getState().refresh();
+  updateCollectionMethod: async (id: number, data: any) => {
+    try {
+      const q = query(collection(db, 'collection_methods'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const method = snap.docs[0].data();
+        const updated = { 
+          ...method, 
+          ...data,
+          initial_balance: data.initial_balance !== undefined ? Number(data.initial_balance) : method.initial_balance,
+          initial_balance_date: data.initial_balance_date || method.initial_balance_date
+        };
+        await updateDoc(doc(db, 'collection_methods', snap.docs[0].id), updated);
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'collection_methods');
     }
   },
-  updateCollectionMethodSubItem: (methodId: number, subItemId: number, data: any) => {
-    const methods = load('rf_collection_methods') as CollectionMethod[];
-    const method = methods.find(m => m.id === methodId);
-    if (method) {
-      method.subItems = method.subItems.map(s => s.id === subItemId ? { 
-        ...s, 
-        ...data,
-        initial_balance: data.initial_balance !== undefined ? Number(data.initial_balance) : s.initial_balance,
-        initial_balance_date: data.initial_balance_date || s.initial_balance_date
-      } : s);
-      save('rf_collection_methods', methods);
-      useAppStore.getState().refresh();
+  addCollectionMethodSubItem: async (methodId: number, name: string, initial_balance?: number, initial_balance_date?: string) => {
+    try {
+      const q = query(collection(db, 'collection_methods'), where('id', '==', methodId));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const method = snap.docs[0].data();
+        method.subItems.push({ 
+          id: Date.now(), 
+          name,
+          initial_balance: Number(initial_balance) || 0,
+          initial_balance_date: initial_balance_date || new Date().toISOString().split('T')[0]
+        });
+        await updateDoc(doc(db, 'collection_methods', snap.docs[0].id), { subItems: method.subItems });
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'collection_methods');
+    }
+  },
+  deleteCollectionMethodSubItem: async (methodId: number, subItemId: number) => {
+    try {
+      const q = query(collection(db, 'collection_methods'), where('id', '==', methodId));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const method = snap.docs[0].data();
+        method.subItems = method.subItems.filter((s: any) => s.id !== subItemId);
+        await updateDoc(doc(db, 'collection_methods', snap.docs[0].id), { subItems: method.subItems });
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'collection_methods');
+    }
+  },
+  updateCollectionMethodSubItem: async (methodId: number, subItemId: number, data: any) => {
+    try {
+      const q = query(collection(db, 'collection_methods'), where('id', '==', methodId));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const method = snap.docs[0].data();
+        method.subItems = method.subItems.map((s: any) => s.id === subItemId ? { 
+          ...s, 
+          ...data,
+          initial_balance: data.initial_balance !== undefined ? Number(data.initial_balance) : s.initial_balance,
+          initial_balance_date: data.initial_balance_date || s.initial_balance_date
+        } : s);
+        await updateDoc(doc(db, 'collection_methods', snap.docs[0].id), { subItems: method.subItems });
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'collection_methods');
     }
   },
 
@@ -522,54 +583,70 @@ export const store = {
 
   getAllMYPayments: () => useAppStore.getState().myPayments,
 
-  addMYPayment: (data: any) => {
-    const payments = load('rf_my_payments');
+  addMYPayment: async (data: any) => {
     const newPayment = { 
       ...data, 
       id: Date.now() + Math.floor(Math.random() * 1000), 
       amount_myr: Number(data.amount_myr), 
       my_agent_id: Number(data.my_agent_id)
     };
-    save('rf_my_payments', [...payments, newPayment]);
     
-    if (data.order_ids?.length > 0) {
-      const orders = load('rf_orders') as Order[];
-      const updated = orders.map(o => data.order_ids.includes(o.id) ? { ...o, status: 'paid' } : o);
-      save('rf_orders', updated);
+    try {
+      await addDoc(collection(db, 'my_payments'), newPayment);
+      
+      if (data.order_ids?.length > 0) {
+        for (const orderId of data.order_ids) {
+          const q = query(collection(db, 'orders'), where('id', '==', orderId));
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            await updateDoc(doc(db, 'orders', snap.docs[0].id), { status: 'paid' });
+          }
+        }
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'my_payments');
     }
-    useAppStore.getState().refresh();
     return newPayment;
   },
 
-  deleteMYPayment: (id: number) => {
-    const payments = load('rf_my_payments') as MYPayment[];
-    const payment = payments.find(p => p.id === id);
-
-    if (payment && payment.order_ids && payment.order_ids.length > 0) {
-      const orders = load('rf_orders') as Order[];
-      const updatedOrders = orders.map(o => 
-        payment.order_ids?.includes(o.id) ? { ...o, status: 'unpaid' } : o
-      );
-      save('rf_orders', updatedOrders);
+  deleteMYPayment: async (id: number) => {
+    try {
+      const q = query(collection(db, 'my_payments'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const payment = snap.docs[0].data();
+        if (payment.order_ids?.length > 0) {
+          for (const orderId of payment.order_ids) {
+            const oq = query(collection(db, 'orders'), where('id', '==', orderId));
+            const osnap = await getDocs(oq);
+            if (!osnap.empty) {
+              await updateDoc(doc(db, 'orders', osnap.docs[0].id), { status: 'unpaid' });
+            }
+          }
+        }
+        await deleteDoc(doc(db, 'my_payments', snap.docs[0].id));
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'my_payments');
     }
-
-    save('rf_my_payments', payments.filter(p => p.id !== id));
-    useAppStore.getState().refresh();
   },
 
-  updateMYPayment: (id: number, data: any) => {
-    const payments = load('rf_my_payments') as MYPayment[];
-    const index = payments.findIndex(p => p.id === id);
-    if (index !== -1) {
-      const existing = payments[index];
-      payments[index] = { 
-        ...existing, 
-        ...data, 
-        amount_myr: data.amount_myr !== undefined ? Number(data.amount_myr) : existing.amount_myr, 
-        my_agent_id: data.my_agent_id !== undefined ? Number(data.my_agent_id) : existing.my_agent_id 
-      };
-      save('rf_my_payments', payments);
-      useAppStore.getState().refresh();
+  updateMYPayment: async (id: number, data: any) => {
+    try {
+      const q = query(collection(db, 'my_payments'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const existing = snap.docs[0].data();
+        const updated = { 
+          ...existing, 
+          ...data, 
+          amount_myr: data.amount_myr !== undefined ? Number(data.amount_myr) : existing.amount_myr, 
+          my_agent_id: data.my_agent_id !== undefined ? Number(data.my_agent_id) : existing.my_agent_id 
+        };
+        await updateDoc(doc(db, 'my_payments', snap.docs[0].id), updated);
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'my_payments');
     }
   },
 
@@ -610,60 +687,74 @@ export const store = {
     return [...bdPayments, ...conversionPayments];
   },
 
-  addBDPayment: (data: any) => {
-    const payments = load('rf_bd_payments');
+  addBDPayment: async (data: any) => {
     const newPayment = { 
       ...data, 
       id: Date.now() + Math.floor(Math.random() * 1000), 
       amount_bdt: Number(data.amount_bdt), 
       bd_agent_id: Number(data.bd_agent_id)
     };
-    save('rf_bd_payments', [...payments, newPayment]);
     
-    if (data.order_ids?.length > 0) {
-      const orders = load('rf_orders') as Order[];
-      const updated = orders.map(o => data.order_ids.includes(o.id) ? { ...o, status: 'paid' } : o);
-      save('rf_orders', updated);
+    try {
+      await addDoc(collection(db, 'bd_payments'), newPayment);
+      
+      if (data.order_ids?.length > 0) {
+        for (const orderId of data.order_ids) {
+          const q = query(collection(db, 'orders'), where('id', '==', orderId));
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            await updateDoc(doc(db, 'orders', snap.docs[0].id), { status: 'paid' });
+          }
+        }
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'bd_payments');
     }
-    useAppStore.getState().refresh();
     return newPayment;
   },
 
-  deleteBDPayment: (id: number) => {
-    const payments = load('rf_bd_payments') as BDPayment[];
-    const payment = payments.find(p => p.id === id);
-    
-    if (payment && payment.order_ids && payment.order_ids.length > 0) {
-      const orders = load('rf_orders') as Order[];
-      const updatedOrders = orders.map(o => 
-        payment.order_ids?.includes(o.id) ? { ...o, status: 'unpaid' } : o
-      );
-      save('rf_orders', updatedOrders);
-    }
-
-    save('rf_bd_payments', payments.filter(p => p.id !== id));
-    useAppStore.getState().refresh();
-  },
-
-  updateBDPayment: (id: number, data: any) => {
-    const payments = load('rf_bd_payments') as BDPayment[];
-    const index = payments.findIndex(p => p.id === id);
-    if (index !== -1) {
-      const existing = payments[index];
-      payments[index] = { 
-        ...existing, 
-        ...data, 
-        amount_bdt: data.amount_bdt !== undefined ? Number(data.amount_bdt) : existing.amount_bdt, 
-        bd_agent_id: data.bd_agent_id !== undefined ? Number(data.bd_agent_id) : existing.bd_agent_id 
-      };
-      save('rf_bd_payments', payments);
-      useAppStore.getState().refresh();
+  deleteBDPayment: async (id: number) => {
+    try {
+      const q = query(collection(db, 'bd_payments'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const payment = snap.docs[0].data();
+        if (payment.order_ids?.length > 0) {
+          for (const orderId of payment.order_ids) {
+            const oq = query(collection(db, 'orders'), where('id', '==', orderId));
+            const osnap = await getDocs(oq);
+            if (!osnap.empty) {
+              await updateDoc(doc(db, 'orders', osnap.docs[0].id), { status: 'unpaid' });
+            }
+          }
+        }
+        await deleteDoc(doc(db, 'bd_payments', snap.docs[0].id));
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'bd_payments');
     }
   },
 
-  getConversions: () => useAppStore.getState().conversions,
-  addConversion: (data: any) => {
-    const items = load('rf_conversions');
+  updateBDPayment: async (id: number, data: any) => {
+    try {
+      const q = query(collection(db, 'bd_payments'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const existing = snap.docs[0].data();
+        const updated = { 
+          ...existing, 
+          ...data, 
+          amount_bdt: data.amount_bdt !== undefined ? Number(data.amount_bdt) : existing.amount_bdt, 
+          bd_agent_id: data.bd_agent_id !== undefined ? Number(data.bd_agent_id) : existing.bd_agent_id 
+        };
+        await updateDoc(doc(db, 'bd_payments', snap.docs[0].id), updated);
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'bd_payments');
+    }
+  },
+
+  addConversion: async (data: any) => {
     const commission_amount = data.commission_enabled ? Number(data.amount_bdt) * 0.025 : 0;
     const total_bd_received = Number(data.amount_bdt) + commission_amount;
     
@@ -678,140 +769,185 @@ export const store = {
       total_bd_received,
       pay_to_bd_agent_id: data.pay_to_bd_agent_id ? Number(data.pay_to_bd_agent_id) : undefined
     };
-    save('rf_conversions', [...items, newItem]);
-    useAppStore.getState().refresh();
+    try {
+      await addDoc(collection(db, 'conversions'), newItem);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'conversions');
+    }
     return newItem;
   },
 
-  updateConversion: (id: number, data: any) => {
-    const items = load('rf_conversions') as Conversion[];
-    const index = items.findIndex(c => c.id === id);
-    if (index !== -1) {
-      const existing = items[index];
-      const amount_bdt = data.amount_bdt !== undefined ? Number(data.amount_bdt) : existing.amount_bdt;
-      const commission_enabled = data.commission_enabled !== undefined ? data.commission_enabled : existing.commission_enabled;
-      const commission_amount = commission_enabled ? amount_bdt * 0.025 : 0;
-      const total_bd_received = amount_bdt + commission_amount;
+  updateConversion: async (id: number, data: any) => {
+    try {
+      const q = query(collection(db, 'conversions'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const existing = snap.docs[0].data();
+        const amount_bdt = data.amount_bdt !== undefined ? Number(data.amount_bdt) : existing.amount_bdt;
+        const commission_enabled = data.commission_enabled !== undefined ? data.commission_enabled : existing.commission_enabled;
+        const commission_amount = commission_enabled ? amount_bdt * 0.025 : 0;
+        const total_bd_received = amount_bdt + commission_amount;
 
-      items[index] = { 
-        ...existing, 
-        ...data, 
-        amount_myr: data.amount_myr !== undefined ? Number(data.amount_myr) : existing.amount_myr, 
-        rate: data.rate !== undefined ? Number(data.rate) : existing.rate, 
-        amount_bdt: amount_bdt, 
-        bank_charges: data.bank_charges !== undefined ? Number(data.bank_charges) : existing.bank_charges,
-        commission_enabled,
-        commission_amount,
-        total_bd_received,
-        pay_to_bd_agent_id: data.pay_to_bd_agent_id !== undefined ? (data.pay_to_bd_agent_id ? Number(data.pay_to_bd_agent_id) : undefined) : existing.pay_to_bd_agent_id
-      };
-      save('rf_conversions', items);
-      useAppStore.getState().refresh();
+        const updated = { 
+          ...existing, 
+          ...data, 
+          amount_myr: data.amount_myr !== undefined ? Number(data.amount_myr) : existing.amount_myr, 
+          rate: data.rate !== undefined ? Number(data.rate) : existing.rate, 
+          amount_bdt: amount_bdt, 
+          bank_charges: data.bank_charges !== undefined ? Number(data.bank_charges) : existing.bank_charges,
+          commission_enabled,
+          commission_amount,
+          total_bd_received,
+          pay_to_bd_agent_id: data.pay_to_bd_agent_id !== undefined ? (data.pay_to_bd_agent_id ? Number(data.pay_to_bd_agent_id) : undefined) : existing.pay_to_bd_agent_id
+        };
+        await updateDoc(doc(db, 'conversions', snap.docs[0].id), updated);
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'conversions');
     }
   },
 
-  deleteConversion: (id: number) => {
-    const items = load('rf_conversions') as Conversion[];
-    save('rf_conversions', items.filter(c => c.id !== id));
-    useAppStore.getState().refresh();
+  deleteConversion: async (id: number) => {
+    try {
+      const q = query(collection(db, 'conversions'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        await deleteDoc(doc(db, 'conversions', snap.docs[0].id));
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'conversions');
+    }
   },
 
   getExpenses: () => useAppStore.getState().expenses,
-  addExpense: (data: any) => {
-    const items = load('rf_expenses');
+  addExpense: async (data: any) => {
     const newItem = { ...data, id: Date.now() + Math.floor(Math.random() * 1000), amount_myr: Number(data.amount_myr) };
-    save('rf_expenses', [...items, newItem]);
-    useAppStore.getState().refresh();
+    try {
+      await addDoc(collection(db, 'expenses'), newItem);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'expenses');
+    }
     return newItem;
   },
 
-  updateExpense: (id: number, data: any) => {
-    const items = load('rf_expenses') as Expense[];
-    const index = items.findIndex(e => e.id === id);
-    if (index !== -1) {
-      const existing = items[index];
-      items[index] = { 
-        ...existing, 
-        ...data, 
-        amount_myr: data.amount_myr !== undefined ? Number(data.amount_myr) : existing.amount_myr 
-      };
-      save('rf_expenses', items);
-      useAppStore.getState().refresh();
+  updateExpense: async (id: number, data: any) => {
+    try {
+      const q = query(collection(db, 'expenses'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const existing = snap.docs[0].data();
+        const updated = { 
+          ...existing, 
+          ...data, 
+          amount_myr: data.amount_myr !== undefined ? Number(data.amount_myr) : existing.amount_myr 
+        };
+        await updateDoc(doc(db, 'expenses', snap.docs[0].id), updated);
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'expenses');
     }
   },
 
-  deleteExpense: (id: number) => {
-    const items = load('rf_expenses') as Expense[];
-    save('rf_expenses', items.filter(e => e.id !== id));
-    useAppStore.getState().refresh();
+  deleteExpense: async (id: number) => {
+    try {
+      const q = query(collection(db, 'expenses'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        await deleteDoc(doc(db, 'expenses', snap.docs[0].id));
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'expenses');
+    }
   },
 
   getWithdrawals: () => useAppStore.getState().withdrawals,
-  addWithdrawal: (data: any) => {
-    const items = load('rf_withdrawals');
+  addWithdrawal: async (data: any) => {
     const newItem = { 
       ...data, 
       id: Date.now() + Math.floor(Math.random() * 1000), 
       amount: Number(data.amount),
       agent_id: Number(data.agent_id)
     };
-    save('rf_withdrawals', [...items, newItem]);
-    useAppStore.getState().refresh();
+    try {
+      await addDoc(collection(db, 'withdrawals'), newItem);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'withdrawals');
+    }
     return newItem;
   },
-  updateWithdrawal: (id: number, data: any) => {
-    const items = load('rf_withdrawals') as Withdrawal[];
-    const index = items.findIndex(w => w.id === id);
-    if (index !== -1) {
-      const existing = items[index];
-      items[index] = { 
-        ...existing, 
-        ...data, 
-        amount: data.amount !== undefined ? Number(data.amount) : existing.amount,
-        agent_id: data.agent_id !== undefined ? Number(data.agent_id) : existing.agent_id
-      };
-      save('rf_withdrawals', items);
-      useAppStore.getState().refresh();
+  updateWithdrawal: async (id: number, data: any) => {
+    try {
+      const q = query(collection(db, 'withdrawals'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const existing = snap.docs[0].data();
+        const updated = { 
+          ...existing, 
+          ...data, 
+          amount: data.amount !== undefined ? Number(data.amount) : existing.amount,
+          agent_id: data.agent_id !== undefined ? Number(data.agent_id) : existing.agent_id
+        };
+        await updateDoc(doc(db, 'withdrawals', snap.docs[0].id), updated);
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'withdrawals');
     }
   },
-  deleteWithdrawal: (id: number) => {
-    const items = load('rf_withdrawals') as Withdrawal[];
-    save('rf_withdrawals', items.filter(w => w.id !== id));
-    useAppStore.getState().refresh();
+  deleteWithdrawal: async (id: number) => {
+    try {
+      const q = query(collection(db, 'withdrawals'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        await deleteDoc(doc(db, 'withdrawals', snap.docs[0].id));
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'withdrawals');
+    }
   },
   
   getDeposits: () => useAppStore.getState().deposits,
-  addDeposit: (data: any) => {
-    const items = load('rf_deposits');
+  addDeposit: async (data: any) => {
     const newItem = { 
       ...data, 
       id: Date.now() + Math.floor(Math.random() * 1000), 
       amount: Number(data.amount),
       agent_id: Number(data.agent_id)
     };
-    save('rf_deposits', [...items, newItem]);
-    useAppStore.getState().refresh();
+    try {
+      await addDoc(collection(db, 'deposits'), newItem);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'deposits');
+    }
     return newItem;
   },
-  updateDeposit: (id: number, data: any) => {
-    const items = load('rf_deposits') as Deposit[];
-    const index = items.findIndex(d => d.id === id);
-    if (index !== -1) {
-      const existing = items[index];
-      items[index] = { 
-        ...existing, 
-        ...data, 
-        amount: data.amount !== undefined ? Number(data.amount) : existing.amount,
-        agent_id: data.agent_id !== undefined ? Number(data.agent_id) : existing.agent_id
-      };
-      save('rf_deposits', items);
-      useAppStore.getState().refresh();
+  updateDeposit: async (id: number, data: any) => {
+    try {
+      const q = query(collection(db, 'deposits'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const existing = snap.docs[0].data();
+        const updated = { 
+          ...existing, 
+          ...data, 
+          amount: data.amount !== undefined ? Number(data.amount) : existing.amount,
+          agent_id: data.agent_id !== undefined ? Number(data.agent_id) : existing.agent_id
+        };
+        await updateDoc(doc(db, 'deposits', snap.docs[0].id), updated);
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'deposits');
     }
   },
-  deleteDeposit: (id: number) => {
-    const items = load('rf_deposits') as Deposit[];
-    save('rf_deposits', items.filter(d => d.id !== id));
-    useAppStore.getState().refresh();
+  deleteDeposit: async (id: number) => {
+    try {
+      const q = query(collection(db, 'deposits'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        await deleteDoc(doc(db, 'deposits', snap.docs[0].id));
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'deposits');
+    }
   },
 
   getCollectionReport: (start_date?: string, end_date?: string, my_agent_id?: string, bd_agent_id?: string) => {

@@ -1,0 +1,108 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Primitive Definition
+    function isSignedIn() { return request.auth != null; }
+    function isVerified() { return true; }
+    function isAdmin() { return isSignedIn() && (request.auth.token.email == 'jewelpatwary1994@gmail.com' || exists(/databases/$(database)/documents/admins/$(request.auth.uid))); }
+    
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // Validation Helpers
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'username', 'role']) && 
+             data.keys().size() == 3 &&
+             data.id is number &&
+             data.username is string && data.username.size() <= 50 &&
+             data.role in ['admin', 'operator'];
+    }
+
+    function isValidAgent(data) {
+      return data.id is number &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100;
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll(['id', 'my_agent_id', 'bd_agent_id', 'amount_bdt', 'rate', 'amount_myr', 'date']) &&
+             data.id is number &&
+             data.my_agent_id is number &&
+             data.bd_agent_id is number &&
+             data.amount_bdt is number &&
+             data.rate is number &&
+             data.amount_myr is number &&
+             data.date is string && data.date.size() == 10;
+    }
+
+    function isValidPayment(data) {
+      return data.keys().hasAll(['id', 'amount_myr', 'date']) &&
+             data.id is number &&
+             data.amount_myr is number &&
+             data.date is string && data.date.size() == 10;
+    }
+
+    // Rules for each collection
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+
+    match /my_agents/{agentId} {
+      allow read, write: if true;
+    }
+
+    match /bd_agents/{agentId} {
+      allow read, write: if true;
+    }
+
+    match /orders/{orderId} {
+      allow read, write: if true;
+    }
+
+    match /collection_methods/{methodId} {
+      allow read, write: if true;
+    }
+
+    match /my_payments/{paymentId} {
+      allow read, write: if true;
+    }
+
+    match /bd_payments/{paymentId} {
+      allow read, write: if true;
+    }
+
+    match /conversions/{convId} {
+      allow read, write: if true;
+    }
+
+    match /expenses/{expId} {
+      allow read, write: if true;
+    }
+
+    match /rate_history/{hId} {
+      allow read, write: if true;
+    }
+
+    match /withdrawals/{wId} {
+      allow read, write: if true;
+    }
+
+    match /deposits/{dId} {
+      allow read, write: if true;
+    }
+
+    match /settings/{sId} {
+      allow read, write: if true;
+    }
+    
+    match /admins/{adminId} {
+      allow read: if isVerified();
+      allow write: if false; 
+    }
+  }
+}

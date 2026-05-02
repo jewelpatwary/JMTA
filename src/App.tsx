@@ -28,7 +28,8 @@ import {
   Check,
   Download,
   ArrowUpDown,
-  Calculator
+  Calculator,
+  Cloud
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -48,6 +49,7 @@ import {
   Area
 } from 'recharts';
 import { cn, formatCurrency, formatDate } from './lib/utils';
+import { db } from './lib/firebase';
 import { store, useAppStore } from './lib/store';
 import { User, MYAgent, BDAgent, Order, MYPayment, BDPayment, Conversion, Expense, CollectionMethod, Withdrawal } from './types';
 
@@ -1427,7 +1429,7 @@ const ProfileSidebar = ({
                       className="flex items-center justify-center gap-2 py-2 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl text-[10px] font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition-colors"
                     >
                       <FileText size={14} />
-                      Backup Data (.json)
+                      Export Data
                     </button>
                     <label className="flex items-center justify-center gap-2 py-2 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 rounded-xl text-[10px] font-bold hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors cursor-pointer">
                       <RefreshCw size={14} />
@@ -2584,23 +2586,38 @@ export default function App() {
     localStorage.setItem('theme', theme);
   }, [theme]);
 
+  useEffect(() => {
+    // Start real-time sync
+    const unsubscribe = refresh();
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
+  }, [refresh]);
+
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setLoading(true);
     const formData = new FormData(e.currentTarget);
     const username = formData.get('username') as string;
     const password = formData.get('password') as string;
 
-    const { users } = useAppStore.getState();
-    const user = users.find(u => u.username === username && u.password === password);
+    try {
+      const { users } = useAppStore.getState();
+      const user = users.find(u => u.username === username && u.password === password);
 
-    if (user) {
-      const mockToken = 'mock-token-' + Date.now();
-      localStorage.setItem('token', mockToken);
-      localStorage.setItem('user', JSON.stringify(user));
-      setToken(mockToken);
-      setUser(user);
-    } else {
-      alert('Invalid credentials');
+      if (user) {
+        const mockToken = 'firebase-session-' + Date.now();
+        localStorage.setItem('token', mockToken);
+        localStorage.setItem('user', JSON.stringify(user));
+        setToken(mockToken);
+        setUser(user);
+      } else {
+        alert('Invalid username or password');
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -2629,7 +2646,9 @@ export default function App() {
             <form onSubmit={handleLogin} className="space-y-4">
               <Input name="username" label="Username" placeholder="Enter username" required />
               <Input name="password" label="Password" type="password" placeholder="••••••••" required />
-              <Button type="submit" className="w-full py-3">Login to Dashboard</Button>
+              <Button type="submit" className="w-full py-3" disabled={loading}>
+                {loading ? 'Logging in...' : 'Login to Dashboard'}
+              </Button>
             </form>
           </Card>
         </div>
@@ -3568,6 +3587,58 @@ function MYAgents({ token, onAgentAdded, onBulkUpload }: { token: string; onAgen
   const totalPages = Math.ceil(filteredAgents.length / itemsPerPage);
   const currentAgents = filteredAgents.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
+  const exportToPDF = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(20);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`MY Agent Report`, 14, 20);
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 28);
+    
+    const tableData = filteredAgents.map(a => [
+      a.id,
+      a.name,
+      ((a.total_payments_myr - a.total_orders_myr) + (Number(a.initial_balance) || 0)).toLocaleString(),
+      a.initial_balance_date
+    ]);
+
+    autoTable(doc, {
+      startY: 40,
+      head: [['ID', 'Name', 'Balance (RM)', 'Date']],
+      body: tableData,
+      theme: 'striped',
+      headStyles: { fillColor: [15, 23, 42] }
+    });
+
+    doc.save('my_agents_report.pdf');
+  };
+
+  const exportToExcel = () => {
+    const tableData = filteredAgents.map(a => ({
+      'ID': a.id,
+      'Name': a.name,
+      'Balance (RM)': (a.total_payments_myr - a.total_orders_myr) + (Number(a.initial_balance) || 0),
+      'Date': a.initial_balance_date
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(tableData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'MY Agents');
+    XLSX.writeFile(wb, 'my_agents_report.xlsx');
+  };
+  
+  const exportToCSV = () => {
+      const csv = Papa.unparse(filteredAgents.map(a => ({
+          'ID': a.id,
+          'Name': a.name,
+          'Balance (RM)': (a.total_payments_myr - a.total_orders_myr) + (Number(a.initial_balance) || 0),
+          'Date': a.initial_balance_date
+      })));
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      saveAs(blob, 'my_agents_report.csv');
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center gap-4">
@@ -3582,6 +3653,9 @@ function MYAgents({ token, onAgentAdded, onBulkUpload }: { token: string; onAgen
           />
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={exportToPDF} className="text-xs py-1.5 whitespace-nowrap gap-2">PDF</Button>
+          <Button variant="outline" onClick={exportToExcel} className="text-xs py-1.5 whitespace-nowrap gap-2">Excel</Button>
+          <Button variant="outline" onClick={exportToCSV} className="text-xs py-1.5 whitespace-nowrap gap-2">CSV</Button>
           <Button variant="outline" onClick={onBulkUpload} className="text-xs py-1.5 whitespace-nowrap gap-2">
             <Download size={16} className="rotate-180" /> Bulk Upload
           </Button>
