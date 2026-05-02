@@ -1046,7 +1046,11 @@ const ProfileSidebar = ({
   theme, 
   onThemeChange, 
   user, 
-  onLogout
+  onLogout,
+  fontSize,
+  setFontSize,
+  fontStyle,
+  setFontStyle
 }: { 
   isOpen: boolean; 
   onClose: () => void; 
@@ -1054,6 +1058,10 @@ const ProfileSidebar = ({
   onThemeChange: (theme: 'light' | 'dark') => void;
   user: User | null;
   onLogout: () => void;
+  fontSize: string;
+  setFontSize: (size: string) => void;
+  fontStyle: string;
+  setFontStyle: (style: string) => void;
 }) => {
   const { collectionMethods } = useAppStore();
   const [newMethod, setNewMethod] = useState('');
@@ -1063,6 +1071,8 @@ const ProfileSidebar = ({
   const [editValue, setEditValue] = useState('');
   const [selectedType, setSelectedType] = useState<'MY' | 'BD'>('MY');
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showFontSizeModal, setShowFontSizeModal] = useState(false);
+  const [showFontStyleModal, setShowFontStyleModal] = useState(false);
   const [detailsData, setDetailsData] = useState<{
     type: 'method' | 'subItem';
     methodId: number;
@@ -1139,7 +1149,7 @@ const ProfileSidebar = ({
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-6">
+              <div className={cn("flex-1 overflow-y-auto p-4 space-y-6", fontSize, fontStyle)}>
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Appearance</h5>
@@ -1167,6 +1177,31 @@ const ProfileSidebar = ({
                       <Moon className="w-4 h-4" />
                     </button>
                   </div>
+                </div>
+
+                <div className="pt-2 flex gap-2 relative">
+                  <button onClick={() => { setShowFontSizeModal(!showFontSizeModal); setShowFontStyleModal(false); }} className="flex-1 text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 py-1.5 rounded uppercase">Font Size</button>
+                  <button onClick={() => { setShowFontStyleModal(!showFontStyleModal); setShowFontSizeModal(false); }} className="flex-1 text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 py-1.5 rounded uppercase">Font Style</button>
+                  
+                  {showFontSizeModal && (
+                    <div className="absolute top-10 left-0 right-0 bg-white dark:bg-slate-900 border rounded-lg shadow-xl p-2 z-10 space-y-1">
+                      {['text-xs', 'text-sm', 'text-base', 'text-lg', 'text-xl'].map(size => (
+                        <button key={size} onClick={() => { setFontSize(size); setShowFontSizeModal(false); }} className="w-full text-left text-xs p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded">{size === 'text-xs' ? 'Extra Small' : size === 'text-sm' ? 'Small' : size === 'text-base' ? 'Medium' : size === 'text-lg' ? 'Large' : 'Extra Large'}</button>
+                      ))}
+                    </div>
+                  )}
+                  {showFontStyleModal && (
+                    <div className="absolute top-10 left-0 right-0 bg-white dark:bg-slate-900 border rounded-lg shadow-xl p-2 z-10 space-y-1 max-h-60 overflow-y-auto">
+                      {[
+                        ...Array(50).fill(0).map((_, i) => ({
+                          name: `Font Style ${i + 1}`,
+                          class: i % 3 === 0 ? 'font-sans' : i % 3 === 1 ? 'font-serif' : 'font-mono'
+                        }))
+                      ].map((style, i) => (
+                        <button key={i} onClick={() => { setFontStyle(style.class); setShowFontStyleModal(false); }} className={cn("w-full text-left text-xs p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded", style.class)}>{style.name}</button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -2444,6 +2479,8 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [fontSize, setFontSize] = useState('text-xs');
+  const [fontStyle, setFontStyle] = useState('font-sans');
   const [theme, setTheme] = useState<'light' | 'dark'>(localStorage.getItem('theme') as 'light' | 'dark' || 'light');
   const [orderFilters, setOrderFilters] = useState<{start: string, end: string} | null>(null);
   const [reportFilters, setReportFilters] = useState<{type: string, my_agent_id?: string, bd_agent_id?: string} | null>(null);
@@ -2601,7 +2638,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex transition-colors">
+    <div className={cn("min-h-screen bg-slate-50 dark:bg-slate-950 flex transition-colors", fontSize, fontStyle)}>
       {/* Modals */}
 
       
@@ -2708,6 +2745,10 @@ export default function App() {
         onThemeChange={setTheme}
         user={user}
         onLogout={handleLogout}
+        fontSize={fontSize}
+        setFontSize={setFontSize}
+        fontStyle={fontStyle}
+        setFontStyle={setFontStyle}
       />
       <BulkPaymentUploadModal 
         isOpen={showBulkUpload} 
@@ -4286,6 +4327,58 @@ function BDAgents({ token, onAgentAdded, onBulkUpload }: { token: string; onAgen
   const totalPages = Math.ceil(filteredAgents.length / itemsPerPage);
   const currentAgents = filteredAgents.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
+  const exportToPDF = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(20);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`BD Agent Report`, 14, 20);
+    doc.setFontSize(10);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 28);
+    
+    const tableData = filteredAgents.map(a => [
+      a.id,
+      a.name,
+      a.initial_balance.toLocaleString(),
+      a.initial_balance_date
+    ]);
+
+    autoTable(doc, {
+      startY: 40,
+      head: [['ID', 'Name', 'Initial Balance', 'Date']],
+      body: tableData,
+      theme: 'striped',
+      headStyles: { fillColor: [15, 23, 42] }
+    });
+
+    doc.save('bd_agents_report.pdf');
+  };
+
+  const exportToExcel = () => {
+    const tableData = filteredAgents.map(a => ({
+      'ID': a.id,
+      'Name': a.name,
+      'Initial Balance': a.initial_balance,
+      'Date': a.initial_balance_date
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(tableData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'BD Agents');
+    XLSX.writeFile(wb, 'bd_agents_report.xlsx');
+  };
+  
+  const exportToCSV = () => {
+      const csv = Papa.unparse(filteredAgents.map(a => ({
+          'ID': a.id,
+          'Name': a.name,
+          'Initial Balance': a.initial_balance,
+          'Date': a.initial_balance_date
+      })));
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      saveAs(blob, 'bd_agents_report.csv');
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center gap-4">
@@ -4300,6 +4393,9 @@ function BDAgents({ token, onAgentAdded, onBulkUpload }: { token: string; onAgen
           />
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={exportToPDF} className="text-xs py-1.5 whitespace-nowrap gap-2">PDF</Button>
+          <Button variant="outline" onClick={exportToExcel} className="text-xs py-1.5 whitespace-nowrap gap-2">Excel</Button>
+          <Button variant="outline" onClick={exportToCSV} className="text-xs py-1.5 whitespace-nowrap gap-2">CSV</Button>
           <Button variant="outline" onClick={onBulkUpload} className="text-xs py-1.5 whitespace-nowrap gap-2">
             <Download size={16} className="rotate-180" /> Bulk Upload
           </Button>
@@ -5661,7 +5757,7 @@ function CalculationPage() {
                 <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700">Payment</th>
                 <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700">Last Due</th>
                 <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700 text-right">Balance</th>
-                {!isExport && <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-12 text-center"></th>}
+                {!isExport && <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-12 text-center">Actions</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">

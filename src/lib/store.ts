@@ -3,8 +3,9 @@ import { saveAs } from 'file-saver';
 import { MYAgent, BDAgent, Order, MYPayment, BDPayment, Conversion, Expense, User, CollectionMethod, Withdrawal, Deposit, RateHistory } from '../types';
 
 // Helper to load/save from localStorage
-const load = (key: string) => JSON.parse(localStorage.getItem(key) || '[]');
-const save = (key: string, data: any) => localStorage.setItem(key, JSON.stringify(data));
+import { blobLoad, blobSave } from './blob';
+const load = blobLoad;
+const save = blobSave;
 
 const calculateOutstanding = (type: 'MY' | 'BD', agent: any, orders: any[], payments: any[], conversions: any[] = []) => {
   const initialBalance = Number(agent.initial_balance) || 0;

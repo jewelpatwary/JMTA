@@ -44,3 +44,25 @@ async function startServer() {
 startServer().catch(err => {
   console.error('❌ FATAL ERROR STARTING SERVER:', err);
 });
+
+
+import { put } from "@vercel/blob";  // ← Add at top
+
+// Add this route BEFORE the Vite middleware section:
+app.post('/api/save-data', async (req, res) => {
+  try {
+    const { url } = await put(
+      'data/app-data.json',
+      JSON.stringify(req.body),
+      {
+        access: 'public',
+        contentType: 'application/json',
+        addRandomSuffix: false,
+      }
+    );
+    res.json({ success: true, url });
+  } catch (error) {
+    console.error('Blob save error:', error);
+    res.status(500).json({ error: 'Failed to save data' });
+  }
+});
