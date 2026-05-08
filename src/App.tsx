@@ -11,6 +11,7 @@ import {
   Plus,
   Search,
   ChevronDown,
+  ChevronUp,
   TrendingUp,
   Wallet,
   Clock,
@@ -345,7 +346,7 @@ const PaymentModal = ({
     setFormData(prev => ({ ...prev, amount: total > 0 ? total.toFixed(2) : '' }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handlePaymentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (type === 'BD' && isTransfer && transferFromAgentId) {
@@ -353,7 +354,7 @@ const PaymentModal = ({
        const sourceAgent = bdAgents.find(a => a.id === parseInt(transferFromAgentId));
        
        // Credit current agent
-       store.addBDPayment({ 
+       await store.addBDPayment({ 
          bd_agent_id: agent.id, 
          amount_bdt: amount, 
          payment_method: formData.payment_method, 
@@ -363,7 +364,7 @@ const PaymentModal = ({
        });
 
        // Debit source agent
-       store.addBDPayment({ 
+       await store.addBDPayment({ 
          bd_agent_id: parseInt(transferFromAgentId), 
          amount_bdt: -amount, 
          payment_method: formData.payment_method, 
@@ -413,7 +414,7 @@ const PaymentModal = ({
           <div>
             <Card className="p-5">
               <h3 className="font-bold text-slate-900 dark:text-white mb-4">Payment Details</h3>
-              <form id="payment-form" onSubmit={handleSubmit} className="space-y-4">
+              <form id="payment-form" onSubmit={handlePaymentSubmit} className="space-y-4">
                 <Input 
                   label={`Amount (${type === 'MY' ? 'RM' : 'BDT'})`} 
                   type="number" 
@@ -575,10 +576,19 @@ function ViewPaymentsModal({
   const [paymentToDelete, setPaymentToDelete] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({ key: 'date', direction: 'desc' });
 
   const payments = type === 'MY' 
     ? myPayments.filter(p => p.my_agent_id === agent.id) 
     : bdPayments.filter(p => p.bd_agent_id === agent.id);
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'desc';
+    if (sortConfig.key === key && sortConfig.direction === 'desc') {
+        direction = 'asc';
+    }
+    setSortConfig({ key, direction });
+  };
 
   const handleDelete = (id: number) => {
     setPaymentToDelete(id);
@@ -622,8 +632,21 @@ function ViewPaymentsModal({
   if (!isOpen) return null;
 
   const filteredPayments = payments.filter(p => !filterDate || p.date === filterDate);
-  const totalPages = Math.ceil(filteredPayments.length / itemsPerPage);
-  const currentPayments = filteredPayments.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const sortedPayments = [...filteredPayments].sort((a, b) => {
+    let aVal = (a as any)[sortConfig.key];
+    let bVal = (b as any)[sortConfig.key];
+    
+    if (sortConfig.key === 'date') {
+        aVal = new Date(aVal as string).getTime();
+        bVal = new Date(bVal as string).getTime();
+    }
+
+    if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+    if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+    return 0;
+  });
+  const totalPages = Math.ceil(sortedPayments.length / itemsPerPage);
+  const currentPayments = sortedPayments.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   return (
     <div className="fixed inset-0 bg-slate-50 z-50 overflow-y-auto">
@@ -654,7 +677,7 @@ function ViewPaymentsModal({
             <table className="w-full text-left">
               <thead className="bg-slate-50 border-b border-slate-200 sticky top-0">
                 <tr>
-                  <th className="px-3 py-2 text-[10px] font-semibold text-slate-500 uppercase">Date</th>
+                  <th className="px-3 py-2 text-[10px] font-semibold text-slate-500 uppercase cursor-pointer" onClick={() => handleSort('date')}>Date {sortConfig.key === 'date' && (sortConfig.direction === 'asc' ? <ChevronUp size={12} className="inline" /> : <ChevronDown size={12} className="inline" />)}</th>
                   <th className="px-3 py-2 text-[10px] font-semibold text-slate-500 uppercase">Method</th>
                   <th className="px-3 py-2 text-[10px] font-semibold text-slate-500 uppercase">Amount</th>
                   <th className="px-3 py-2 text-[10px] font-semibold text-slate-500 uppercase">Remark</th>
@@ -4171,13 +4194,14 @@ function Orders({ token, onOrderAdded, initialFilters, onBulkUpload }: { token: 
             {filteredOrders.length > 0 && (
               <tfoot className="bg-slate-50 dark:bg-slate-800 font-bold border-t-2 border-slate-200 dark:border-slate-700 sticky bottom-0 z-10">
                 <tr>
-                  <td colSpan={4} className="px-2 py-2 text-xs text-slate-900 dark:text-white text-right border-r border-slate-200 dark:border-slate-700">TOTAL:</td>
+                  <td colSpan={5} className="px-2 py-2 text-xs text-slate-900 dark:text-white text-right border-r border-slate-200 dark:border-slate-700">TOTAL:</td>
                   <td className="px-2 py-2 text-xs text-slate-900 dark:text-white border-r border-slate-200 dark:border-slate-700">{filteredOrders.reduce((sum, o) => sum + o.amount_bdt, 0).toLocaleString()}</td>
                   <td className="px-2 py-2 text-xs text-slate-900 dark:text-white border-r border-slate-200 dark:border-slate-700">-</td>
                   <td className="px-2 py-2 text-xs text-slate-900 dark:text-white border-r border-slate-200 dark:border-slate-700">{formatCurrency(filteredOrders.reduce((sum, o) => sum + Number(o.amount_myr), 0))}</td>
                   <td className="px-2 py-2 text-xs text-red-600 dark:text-red-400 border-r border-slate-200 dark:border-slate-700 whitespace-nowrap">
                     {filteredOrders.reduce((sum, o) => sum + Number(o.charge || 0), 0).toLocaleString()} <span className="text-[10px] opacity-70">BDT</span>
                   </td>
+                  <td className="px-2 py-2"></td>
                   <td className="px-2 py-2"></td>
                 </tr>
               </tfoot>
@@ -4639,6 +4663,7 @@ function ConversionTab({ token, onConversionAdded }: { token: string; onConversi
   const [conversionToDelete, setConversionToDelete] = useState<number | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({ key: 'date', direction: 'desc' });
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
     amount_myr: '',
@@ -4647,6 +4672,29 @@ function ConversionTab({ token, onConversionAdded }: { token: string; onConversi
     bank_charges: '0',
     commission_enabled: false,
     pay_to_bd_agent_id: ''
+  });
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'desc';
+    if (sortConfig.key === key && sortConfig.direction === 'desc') {
+        direction = 'asc';
+    }
+    setSortConfig({ key, direction });
+  };
+ 
+  const sortedConversions = [...conversions].sort((a, b) => {
+    let aVal = a[sortConfig.key as keyof typeof a];
+    let bVal = b[sortConfig.key as keyof typeof b];
+    
+    // Simple handling for date string comparisons
+    if (sortConfig.key === 'date') {
+        aVal = new Date(aVal as string).getTime();
+        bVal = new Date(bVal as string).getTime();
+    }
+
+    if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+    if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+    return 0;
   });
 
   const handleReload = () => {
@@ -4768,8 +4816,8 @@ function ConversionTab({ token, onConversionAdded }: { token: string; onConversi
     ? parseFloat(formData.amount_bdt) + commissionAmount 
     : 0;
   
-  const totalPages = Math.ceil(conversions.length / itemsPerPage);
-  const currentConversions = conversions.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const totalPages = Math.ceil(sortedConversions.length / itemsPerPage);
+  const currentConversions = sortedConversions.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   return (
     <div className="space-y-4">
@@ -4791,8 +4839,12 @@ function ConversionTab({ token, onConversionAdded }: { token: string; onConversi
           <table className="w-full text-left border-collapse">
             <thead className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
               <tr>
-                <th className="px-2 py-2 text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase w-32 border-r border-slate-200 dark:border-slate-700">Date</th>
-                <th className="px-2 py-2 text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase border-r border-slate-200 dark:border-slate-700">Total Send RM</th>
+                <th className="px-2 py-2 text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase w-32 border-r border-slate-200 dark:border-slate-700 cursor-pointer" onClick={() => handleSort('date')}>
+                    Date {sortConfig.key === 'date' && (sortConfig.direction === 'asc' ? <ChevronUp size={12} className="inline" /> : <ChevronDown size={12} className="inline" />)}
+                </th>
+                <th className="px-2 py-2 text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase border-r border-slate-200 dark:border-slate-700 cursor-pointer" onClick={() => handleSort('amount_myr')}>
+                    Total Send RM {sortConfig.key === 'amount_myr' && (sortConfig.direction === 'asc' ? <ChevronUp size={12} className="inline" /> : <ChevronDown size={12} className="inline" />)}
+                </th>
                 <th className="px-2 py-2 text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase border-r border-slate-200 dark:border-slate-700">Final Rate</th>
                 <th className="px-2 py-2 text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase border-r border-slate-200 dark:border-slate-700">BD Amount</th>
                 <th className="px-2 py-2 text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase border-r border-slate-200 dark:border-slate-700">2.5% Commission</th>
@@ -5048,8 +5100,8 @@ function Expenses({ token, onExpenseAdded }: { token: string; onExpenseAdded?: (
     }
   };
 
-  const totalPages = Math.ceil(expenses.length / itemsPerPage);
-  const currentExpenses = expenses.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const totalPages = Math.ceil(filteredExpenses.length / itemsPerPage);
+  const currentExpenses = filteredExpenses.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   return (
     <div className="space-y-4">
@@ -5120,7 +5172,7 @@ function Expenses({ token, onExpenseAdded }: { token: string; onExpenseAdded?: (
                 </tr>
               ))}
             </tbody>
-            {expenses.length > 0 && (
+            {filteredExpenses.length > 0 && (
               <tfoot className="bg-slate-50 dark:bg-slate-800 font-bold border-t-2 border-slate-200 dark:border-slate-700 sticky bottom-0 z-10">
                 <tr>
                   <td colSpan={2} className="px-2 py-2 text-xs text-slate-900 dark:text-white text-right border-r border-slate-200 dark:border-slate-700">TOTAL:</td>
