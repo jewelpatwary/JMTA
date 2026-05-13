@@ -66,11 +66,13 @@ interface AppState {
   deposits: Deposit[];
   defaultRate: number;
   rateHistory: RateHistory[];
+  dateFormat: string;
   stats: any;
   
   // Actions
   refresh: () => (() => void);
   setDefaultRate: (rate: number, date?: string) => void;
+  setDateFormat: (format: string) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -87,6 +89,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   deposits: load('rf_deposits'),
   defaultRate: Number(localStorage.getItem('rf_default_rate') || 0),
   rateHistory: load('rf_rate_history'),
+  dateFormat: localStorage.getItem('rf_date_format') || 'DD-MM-YYYY',
   stats: null,
 
   refresh: () => {
@@ -262,7 +265,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'rate_history');
     }
-  }
+  },
+  
+  setDateFormat: (format: string) => {
+    localStorage.setItem('rf_date_format', format);
+    set(state => ({ ...state, dateFormat: format }));
+  },
 }));
 
 // Initialize store data
@@ -1086,6 +1094,7 @@ export const store = {
       const globalExpenses = expenses.filter(e => {
         if (start_date && e.date < start_date) return false;
         if (end_date && e.date > end_date) return false;
+        if (e.currency === 'BDT') return false;
         return true;
       });
       const globalOrders = orders.filter(o => {
@@ -1232,6 +1241,7 @@ export const store = {
       const globalExpenses = expenses.filter(e => {
         if (start_date && e.date < start_date) return false;
         if (end_date && e.date > end_date) return false;
+        if (e.currency === 'BDT') return false;
         return true;
       });
 
@@ -1255,7 +1265,7 @@ export const store = {
         const dayGlobalExpenses = globalExpenses.filter(e => e.date === date);
         
         const dayGlobalCharges = dayGlobalConversions.reduce((sum, c) => sum + Number(c.bank_charges), 0);
-        const dayGlobalExp = dayGlobalExpenses.reduce((sum, e) => sum + Number(e.amount_myr), 0);
+        const dayGlobalExp = dayGlobalExpenses.filter(e => e.currency !== 'BDT').reduce((sum, e) => sum + Number(e.amount_myr), 0);
 
         const dayCharges = isAgentSelected ? (dayGlobalCharges * dayProRateFactor) : dayGlobalCharges;
         const dayExp = isAgentSelected ? (dayGlobalExp * dayProRateFactor) : dayGlobalExp;

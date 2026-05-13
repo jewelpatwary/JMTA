@@ -1088,7 +1088,7 @@ const ProfileSidebar = ({
   fontStyle: string;
   setFontStyle: (style: string) => void;
 }) => {
-  const { collectionMethods } = useAppStore();
+  const { collectionMethods, setDateFormat } = useAppStore();
   const [newMethod, setNewMethod] = useState('');
   const [expandedMethodId, setExpandedMethodId] = useState<number | null>(null);
   const [editingMethodId, setEditingMethodId] = useState<number | null>(null);
@@ -1097,6 +1097,7 @@ const ProfileSidebar = ({
   const [selectedType, setSelectedType] = useState<'MY' | 'BD'>('MY');
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showFontSizeModal, setShowFontSizeModal] = useState(false);
+  const [showDateFormatModal, setShowDateFormatModal] = useState(false);
   const [showFontStyleModal, setShowFontStyleModal] = useState(false);
   const [detailsData, setDetailsData] = useState<{
     type: 'method' | 'subItem';
@@ -1205,9 +1206,18 @@ const ProfileSidebar = ({
                 </div>
 
                 <div className="pt-2 flex gap-2 relative">
-                  <button onClick={() => { setShowFontSizeModal(!showFontSizeModal); setShowFontStyleModal(false); }} className="flex-1 text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 py-1.5 rounded uppercase">Font Size</button>
-                  <button onClick={() => { setShowFontStyleModal(!showFontStyleModal); setShowFontSizeModal(false); }} className="flex-1 text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 py-1.5 rounded uppercase">Font Style</button>
+                  <button onClick={() => { setShowFontSizeModal(!showFontSizeModal); setShowFontStyleModal(false); setShowDateFormatModal(false); }} className="flex-1 text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 py-1.5 rounded uppercase">Font Size</button>
+                  <button onClick={() => { setShowFontStyleModal(!showFontStyleModal); setShowFontSizeModal(false); setShowDateFormatModal(false); }} className="flex-1 text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 py-1.5 rounded uppercase">Font Style</button>
+                  <button onClick={() => { setShowDateFormatModal(!showDateFormatModal); setShowFontSizeModal(false); setShowFontStyleModal(false); }} className="flex-1 text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 py-1.5 rounded uppercase">Date Format</button>
                   
+                  {showDateFormatModal && (
+                    <div className="absolute top-10 left-0 right-0 bg-white dark:bg-slate-900 border rounded-lg shadow-xl p-2 z-10 space-y-1">
+                      {['DD-MM-YYYY', 'YYYY-MM-DD', 'MM-DD-YYYY'].map(format => (
+                        <button key={format} onClick={() => { setDateFormat(format); setShowDateFormatModal(false); }} className="w-full text-left text-xs p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded">{format}</button>
+                      ))}
+                    </div>
+                  )}
+
                   {showFontSizeModal && (
                     <div className="absolute top-10 left-0 right-0 bg-white dark:bg-slate-900 border rounded-lg shadow-xl p-2 z-10 space-y-1">
                       {['text-xs', 'text-sm', 'text-base', 'text-lg', 'text-xl'].map(size => (
