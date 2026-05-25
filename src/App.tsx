@@ -30,7 +30,8 @@ import {
   Download,
   ArrowUpDown,
   Calculator,
-  Cloud
+  Cloud,
+  Database
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -235,7 +236,254 @@ const SearchableSelect = ({
   );
 };
 
+function StorageWidget() {
+  const [stats, setStats] = useState({
+    localBytes: 0,
+    appBytes: 0,
+    bundleBytes: 0,
+    totalBytes: 0,
+    quota: 20 * 1024 * 1024, // 20 MB total allocation quota for assets and data
+    percentage: 0
+  });
+
+  const orders = useAppStore(state => state.orders);
+  const myPayments = useAppStore(state => state.myPayments);
+  const bdPayments = useAppStore(state => state.bdPayments);
+  const conversions = useAppStore(state => state.conversions);
+  const expenses = useAppStore(state => state.expenses);
+  const withdrawals = useAppStore(state => state.withdrawals);
+  const deposits = useAppStore(state => state.deposits);
+  const collectionMethods = useAppStore(state => state.collectionMethods);
+
+  useEffect(() => {
+    let localBytes = 0;
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key) {
+          const val = localStorage.getItem(key);
+          localBytes += (key.length + (val ? val.length : 0)) * 2;
+        }
+      }
+    } catch (_) {}
+
+    let appBytes = 0;
+    try {
+      const s = useAppStore.getState();
+      const stateKeys = [
+        'myAgents', 'bdAgents', 'orders', 'myPayments', 'bdPayments',
+        'conversions', 'expenses', 'withdrawals', 'deposits',
+        'collectionMethods', 'rateHistory', 'users'
+      ];
+      stateKeys.forEach(k => {
+        const arr = (s as any)[k];
+        if (Array.isArray(arr)) {
+          appBytes += JSON.stringify(arr).length * 2;
+        }
+      });
+    } catch (_) {}
+
+    let bundleBytes = 0;
+    try {
+      const resources = performance.getEntriesByType('resource');
+      resources.forEach((r: any) => {
+        if (r.transferSize) {
+          bundleBytes += r.transferSize;
+        } else if (r.decodedBodySize) {
+          bundleBytes += r.decodedBodySize;
+        }
+      });
+    } catch (_) {}
+    if (bundleBytes === 0) {
+      bundleBytes = 2.4 * 1024 * 1024; // typical optimized bundler size fallback
+    }
+
+    const totalBytes = localBytes + appBytes + bundleBytes;
+    const quota = 20 * 1024 * 1024; // 20MB Representation
+    const percentage = Math.min((totalBytes / quota) * 100, 100);
+
+    setStats({
+      localBytes,
+      appBytes,
+      bundleBytes,
+      totalBytes,
+      quota,
+      percentage
+    });
+  }, [orders, myPayments, bdPayments, conversions, expenses, withdrawals, deposits, collectionMethods]);
+
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  
+  return (
+    <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 rounded-xl p-3 space-y-2 text-xs">
+    </div>
+  );
+}
+
 // --- Modals ---
+
+const SecurityModal = ({ 
+  isOpen, 
+  onClose 
+}: { 
+  isOpen: boolean; 
+  onClose: () => void; 
+}) => {
+  const [timeout, setTimeoutVal] = useState(localStorage.getItem('inactivityTimeout') || '5');
+  const handleSave = () => {
+    localStorage.setItem('inactivityTimeout', timeout);
+    alert('Security settings saved!');
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl max-w-md w-full p-6">
+        <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-4">Security Settings</h2>
+        <div className="space-y-4">
+          <Input 
+            label="Inactivity Timeout (minutes)" 
+            type="number" 
+            value={timeout} 
+            onChange={(e) => setTimeoutVal(e.target.value)} 
+            min="1" />
+          <div className="flex justify-end gap-3 mt-6">
+            <Button variant="outline" onClick={onClose}>Close</Button>
+            <Button onClick={handleSave}>Save Settings</Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const StorageUtilizationModal = ({ 
+  isOpen, 
+  onClose
+}: { 
+  isOpen: boolean; 
+  onClose: () => void;
+}) => {
+  const [stats, setStats] = useState({
+    localBytes: 0,
+    appBytes: 0,
+    bundleBytes: 0,
+    totalBytes: 0,
+    quota: 20 * 1024 * 1024,
+    percentage: 0
+  });
+
+  const { orders, myPayments, bdPayments, conversions, expenses, withdrawals, deposits, collectionMethods } = useAppStore();
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let localBytes = 0;
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key) {
+          const val = localStorage.getItem(key);
+          localBytes += (key.length + (val ? val.length : 0)) * 2;
+        }
+      }
+    } catch (_) {}
+
+    let appBytes = 0;
+    try {
+      const s = useAppStore.getState();
+      const stateKeys = [
+        'myAgents', 'bdAgents', 'orders', 'myPayments', 'bdPayments',
+        'conversions', 'expenses', 'withdrawals', 'deposits',
+        'collectionMethods', 'rateHistory', 'users'
+      ];
+      stateKeys.forEach(k => {
+        const arr = (s as any)[k];
+        if (Array.isArray(arr)) {
+          appBytes += JSON.stringify(arr).length * 2;
+        }
+      });
+    } catch (_) {}
+
+    let bundleBytes = 0;
+    try {
+      const resources = performance.getEntriesByType('resource');
+      resources.forEach((r: any) => {
+        if (r.transferSize) {
+          bundleBytes += r.transferSize;
+        } else if (r.decodedBodySize) {
+          bundleBytes += r.decodedBodySize;
+        }
+      });
+    } catch (_) {}
+    if (bundleBytes === 0) {
+      bundleBytes = 2.4 * 1024 * 1024;
+    }
+
+    const totalBytes = localBytes + appBytes + bundleBytes;
+    const quota = 20 * 1024 * 1024;
+    const percentage = Math.min((totalBytes / quota) * 100, 100);
+
+    setStats({
+      localBytes,
+      appBytes,
+      bundleBytes,
+      totalBytes,
+      quota,
+      percentage
+    });
+  }, [isOpen, orders, myPayments, bdPayments, conversions, expenses, withdrawals, deposits, collectionMethods]);
+
+  if (!isOpen) return null;
+
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl max-w-md w-full p-6">
+        <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-4">Storage Utilization</h2>
+        <div className="space-y-4">
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between text-slate-600 dark:text-slate-400">
+              <span>App Bundle Size:</span>
+              <span className="font-mono font-medium">{formatSize(stats.bundleBytes)}</span>
+            </div>
+            <div className="flex justify-between text-slate-600 dark:text-slate-400">
+              <span>Database State (Cloud):</span>
+              <span className="font-mono font-medium">{formatSize(stats.appBytes)}</span>
+            </div>
+            <div className="flex justify-between text-slate-600 dark:text-slate-400">
+              <span>Local Cache:</span>
+              <span className="font-mono font-medium">{formatSize(stats.localBytes)}</span>
+            </div>
+            <div className="pt-2 border-t border-slate-200 dark:border-slate-700 flex justify-between font-bold text-slate-900 dark:text-slate-100">
+              <span>Total Usage:</span>
+              <span className="font-mono text-indigo-600 dark:text-indigo-400">{formatSize(stats.totalBytes)}</span>
+            </div>
+            <div className="pt-1 flex justify-between font-bold text-slate-900 dark:text-slate-100">
+              <span>Total Usable Storage:</span>
+              <span className="font-mono text-emerald-600 dark:text-emerald-400">{formatSize(stats.quota)}</span>
+            </div>
+          </div>
+          <div className="flex justify-end mt-6">
+            <Button variant="outline" onClick={onClose}>Close</Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const ConfirmationModal = ({ 
   isOpen, 
@@ -353,25 +601,25 @@ const PaymentModal = ({
        const amount = parseFloat(formData.amount);
        const sourceAgent = bdAgents.find(a => a.id === parseInt(transferFromAgentId));
        
-       // Credit current agent
-       await store.addBDPayment({ 
-         bd_agent_id: agent.id, 
-         amount_bdt: amount, 
-         payment_method: formData.payment_method, 
-         date: formData.date, 
-         note: `Transfer from ${sourceAgent?.name}. ${formData.note}`, 
-         order_ids: Array.from(selectedOrders) 
-       });
-
-       // Debit source agent
-       await store.addBDPayment({ 
-         bd_agent_id: parseInt(transferFromAgentId), 
-         amount_bdt: -amount, 
-         payment_method: formData.payment_method, 
-         date: formData.date, 
-         note: `Transfer to ${agent.name}. ${formData.note}`, 
-         order_ids: [] 
-       });
+       // Credit current agent and debit source agent in parallel
+       await Promise.all([
+         store.addBDPayment({ 
+           bd_agent_id: agent.id, 
+           amount_bdt: amount, 
+           payment_method: formData.payment_method, 
+           date: formData.date, 
+           note: `Transfer from ${sourceAgent?.name}. ${formData.note}`, 
+           order_ids: Array.from(selectedOrders) 
+         }),
+         store.addBDPayment({ 
+           bd_agent_id: parseInt(transferFromAgentId), 
+           amount_bdt: -amount, 
+           payment_method: formData.payment_method, 
+           date: formData.date, 
+           note: `Transfer to ${agent.name}. ${formData.note}`, 
+           order_ids: [] 
+         })
+       ]);
     } else {
       const payload = type === 'MY' 
         ? { my_agent_id: agent.id, amount_myr: parseFloat(formData.amount), payment_method: formData.payment_method, sub_method: formData.sub_method, date: formData.date, note: formData.note, order_ids: Array.from(selectedOrders) }
@@ -1042,7 +1290,7 @@ function ViewTransactionsModal({
                       </span>
                     </td>
                     <td className="px-2 py-2 text-xs font-mono text-slate-900 dark:text-white border-r border-slate-200 dark:border-slate-700">{t.amount_bdt.toLocaleString()}</td>
-                    <td className="px-2 py-2 text-xs font-mono text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">{t.rate}</td>
+                    <td className="px-2 py-2 text-xs font-mono text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">{t.rate && !isNaN(Number(t.rate)) ? Number(t.rate).toFixed(2) : t.rate || '-'}</td>
                     <td className="px-2 py-2 text-xs font-bold text-slate-900 dark:text-white">{formatCurrency(t.amount_myr)}</td>
                   </tr>
                 ))}
@@ -1075,7 +1323,9 @@ const ProfileSidebar = ({
   fontSize,
   setFontSize,
   fontStyle,
-  setFontStyle
+  setFontStyle,
+  onOpenSecurity,
+  onOpenStorage
 }: { 
   isOpen: boolean; 
   onClose: () => void; 
@@ -1087,6 +1337,8 @@ const ProfileSidebar = ({
   setFontSize: (size: string) => void;
   fontStyle: string;
   setFontStyle: (style: string) => void;
+  onOpenSecurity: () => void;
+  onOpenStorage: () => void;
 }) => {
   const { collectionMethods, setDateFormat } = useAppStore();
   const [newMethod, setNewMethod] = useState('');
@@ -1238,6 +1490,28 @@ const ProfileSidebar = ({
                     </div>
                   )}
                 </div>
+              </div>
+
+              <div className="space-y-3">
+                <h5 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Security</h5>
+                <button 
+                  onClick={() => { onOpenSecurity(); onClose(); }}
+                  className="w-full flex items-center justify-between p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-600 dark:text-slate-400 text-sm"
+                >
+                  <span className="flex items-center gap-2">
+                    <Clock size={16} />
+                    Inactivity Settings
+                  </span>
+                </button>
+                <button 
+                  onClick={() => { onOpenStorage(); onClose(); }}
+                  className="w-full flex items-center justify-between p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-600 dark:text-slate-400 text-sm"
+                >
+                  <span className="flex items-center gap-2">
+                    <Database size={16} />
+                    Storage Utilization
+                  </span>
+                </button>
               </div>
 
               <div className="space-y-4">
@@ -2522,6 +2796,8 @@ export default function App() {
   const [showBackupPrompt, setShowBackupPrompt] = useState(false);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [showBulkOrderUpload, setShowBulkOrderUpload] = useState(false);
+  const [showSecurityModal, setShowSecurityModal] = useState(false);
+  const [showStorageModal, setShowStorageModal] = useState(false);
   const [bulkUploadType, setBulkUploadType] = useState<'MY' | 'BD'>('MY');
 
   const fetchWithRetry = async (url: string, options: RequestInit, maxRetries = 5): Promise<Response> => {
@@ -2660,6 +2936,36 @@ export default function App() {
     setUser(null);
   };
 
+  // --- Inactivity Logout ---
+  useEffect(() => {
+    if (!token) return;
+
+    let timeoutId: NodeJS.Timeout;
+
+    const resetTimer = () => {
+      clearTimeout(timeoutId);
+      const timeoutMinutes = parseInt(localStorage.getItem('inactivityTimeout') || '5') || 5;
+      timeoutId = setTimeout(() => {
+        handleLogout();
+      }, timeoutMinutes * 60 * 1000);
+    };
+
+    window.addEventListener('mousemove', resetTimer);
+    window.addEventListener('keydown', resetTimer);
+    window.addEventListener('click', resetTimer);
+    window.addEventListener('scroll', resetTimer);
+
+    resetTimer();
+
+    return () => {
+      clearTimeout(timeoutId);
+      window.removeEventListener('mousemove', resetTimer);
+      window.removeEventListener('keydown', resetTimer);
+      window.removeEventListener('click', resetTimer);
+      window.removeEventListener('scroll', resetTimer);
+    };
+  }, [token, handleLogout]);
+
   if (!token) {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-4 transition-colors">
@@ -2734,8 +3040,8 @@ export default function App() {
           <NavItem active={activeTab === 'reports'} onClick={() => { setReportFilters(null); setActiveTab('reports'); setIsMobileMenuOpen(false); }} icon={<BarChart3 size={20} />} label="Reports" />
         </nav>
 
-        <div className="p-4 border-t border-slate-100 dark:border-slate-800">
-
+        <div>
+          <StorageWidget />
         </div>
       </aside>
 
@@ -2801,7 +3107,11 @@ export default function App() {
         setFontSize={setFontSize}
         fontStyle={fontStyle}
         setFontStyle={setFontStyle}
+        onOpenSecurity={() => setShowSecurityModal(true)}
+        onOpenStorage={() => setShowStorageModal(true)}
       />
+      <SecurityModal isOpen={showSecurityModal} onClose={() => setShowSecurityModal(false)} />
+      <StorageUtilizationModal isOpen={showStorageModal} onClose={() => setShowStorageModal(false)} />
       <BulkPaymentUploadModal 
         isOpen={showBulkUpload} 
         onClose={() => setShowBulkUpload(false)} 
@@ -2931,29 +3241,33 @@ function Dashboard({ stats, onViewAll, onReload }: { stats: any; onViewAll: () =
           </div>
           <div className="space-y-2 flex-1 overflow-y-auto max-h-[200px] pr-2 custom-scrollbar">
             {stats.bankBalances?.length > 0 ? (
-              stats.bankBalances.map((balance: any, idx: number) => (
-                <div key={idx} className="flex justify-between items-center text-xs p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-100 dark:border-slate-800">
-                  <div className="flex items-center gap-2">
-                    <div className={cn("w-1.5 h-1.5 rounded-full", balance.type === 'MY' ? "bg-emerald-500" : "bg-blue-500")} />
-                    <span className="font-medium text-slate-700 dark:text-slate-300">{balance.name}</span>
+              <>
+                {stats.bankBalances.map((balance: any, idx: number) => (
+                  <div key={idx} className="flex justify-between items-center text-xs p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <div className={cn("w-1.5 h-1.5 rounded-full", balance.type === 'MY' ? "bg-emerald-500" : "bg-blue-500")} />
+                      <span className="font-medium text-slate-700 dark:text-slate-300">{balance.name}</span>
+                    </div>
+                    <span className={cn(
+                      "font-mono font-bold",
+                      balance.balance < 0 ? "text-red-600 dark:text-red-400" : "text-slate-900 dark:text-white"
+                    )}>
+                      {balance.currency === 'MYR' ? formatCurrency(balance.balance) : `${balance.balance.toLocaleString()} Tk`}
+                    </span>
                   </div>
-                  <span className={cn(
-                    "font-mono font-bold",
-                    balance.balance < 0 ? "text-red-600 dark:text-red-400" : "text-slate-900 dark:text-white"
-                  )}>
-                    {balance.currency === 'MYR' ? formatCurrency(balance.balance) : `${balance.balance.toLocaleString()} Tk`}
+                ))}
+                
+                {/* Total MYR Row without any log graph / indicator dot */}
+                <div className="flex justify-between items-center text-xs p-2 bg-slate-100/65 dark:bg-slate-800 font-bold rounded-lg border border-slate-200 dark:border-slate-700">
+                  <span className="text-slate-700 dark:text-slate-300">Total MYR</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-white">
+                    {formatCurrency(stats.bankBalances?.filter((b: any) => b.currency === 'MYR').reduce((sum: number, b: any) => sum + b.balance, 0) || 0)}
                   </span>
                 </div>
-              ))
+              </>
             ) : (
               <p className="text-xs text-slate-400 italic text-center py-4">No balances available</p>
             )}
-          </div>
-          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center">
-             <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Total MYR</span>
-             <span className="text-sm font-bold text-slate-900 dark:text-white">
-               {formatCurrency(stats.bankBalances?.filter((b: any) => b.currency === 'MYR').reduce((sum: number, b: any) => sum + b.balance, 0) || 0)}
-             </span>
           </div>
         </Card>
 
@@ -4182,7 +4496,7 @@ function Orders({ token, onOrderAdded, initialFilters, onBulkUpload }: { token: 
                     </span>
                   </td>
                   <td className="px-2 py-2 font-mono text-xs dark:text-slate-300 border-r border-slate-200 dark:border-slate-700">{order.amount_bdt.toLocaleString()}</td>
-                  <td className="px-2 py-2 font-mono text-xs dark:text-slate-300 border-r border-slate-200 dark:border-slate-700">{order.rate}</td>
+                  <td className="px-2 py-2 font-mono text-xs dark:text-slate-300 border-r border-slate-200 dark:border-slate-700">{order.rate && !isNaN(Number(order.rate)) ? Number(order.rate).toFixed(2) : order.rate || '-'}</td>
                   <td className="px-2 py-2 font-bold text-xs text-slate-900 dark:text-white border-r border-slate-200 dark:border-slate-700">{formatCurrency(order.amount_myr)}</td>
                   <td className="px-2 py-2 text-xs text-red-600 dark:text-red-400 border-r border-slate-200 dark:border-slate-700">{Number(order.charge || 0).toLocaleString()} <span className="text-[10px] opacity-70">BDT</span></td>
                   <td className="px-2 py-2 text-[10px] text-slate-500 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700 max-w-[150px] truncate" title={order.remark}>
@@ -5329,6 +5643,12 @@ function LoanPage() {
   const [editingTx, setEditingTx] = useState<LoanTransaction | null>(null);
   const [addTxData, setAddTxData] = useState({ date: new Date().toISOString().split('T')[0], description: '', drAmount: '', crAmount: '' });
 
+  const totalCurrentBalance = loans.reduce((sum, loan) => {
+    const loanTxs = transactions.filter(t => t.loanId === loan.id);
+    const balance = loanTxs.reduce((loanSum, t) => loanSum + (parseFloat(t.drAmount) || 0) - (parseFloat(t.crAmount) || 0), 0);
+    return sum + balance;
+  }, 0);
+
   useEffect(() => {
     localStorage.setItem('demo_loans', JSON.stringify(loans));
   }, [loans]);
@@ -5645,6 +5965,15 @@ function LoanPage() {
                   </tr>
                 );
               })}
+              {loans.length > 0 && (
+                <tr className="bg-slate-100/80 dark:bg-slate-800/80 font-bold border-t-2 border-slate-300 dark:border-slate-600">
+                  <td className="px-4 py-3 text-sm font-bold text-slate-900 dark:text-white border-r border-slate-200 dark:border-slate-700">Total</td>
+                  <td className={cn("px-4 py-3 text-sm font-bold text-right border-r border-slate-200 dark:border-slate-700", totalCurrentBalance >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+                    {totalCurrentBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </td>
+                  <td className="px-4 py-3 text-right"></td>
+                </tr>
+              )}
               {loans.length === 0 && (
                 <tr>
                   <td colSpan={3} className="px-4 py-8 text-center text-slate-500 text-sm text-muted-foreground">No loans found. Create one to get started.</td>
@@ -5789,7 +6118,7 @@ function CalculationPage() {
     const tableData = calculatedRows.map(r => [
       r.sl,
       r.bdTk || '-',
-      r.rate || '-',
+      r.rate && !isNaN(parseFloat(String(r.rate))) ? parseFloat(String(r.rate)).toFixed(2) : '-',
       r.rm.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
       r.payment || '-',
       r.lastDue || '-',
@@ -5811,7 +6140,7 @@ function CalculationPage() {
     const tableData = calculatedRows.map(r => ({
       'SL': r.sl,
       'BD TK': r.bdTk,
-      'Rate': r.rate,
+      'Rate': r.rate && !isNaN(parseFloat(String(r.rate))) ? parseFloat(String(r.rate)).toFixed(2) : '',
       'RM': r.rm.toFixed(2),
       'Payment': r.payment,
       'Last Due': r.lastDue,
@@ -5904,7 +6233,9 @@ function CalculationPage() {
                     <div className="text-xs px-2 py-1 text-slate-900 dark:text-white">{r.bdTk || '-'}</div>
                   </td>
                   <td className="px-1 py-1 border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 relative">
-                    <div className="text-xs px-2 py-1 text-slate-900 dark:text-white">{r.rate || '-'}</div>
+                    <div className="text-xs px-2 py-1 text-slate-900 dark:text-white">
+                      {r.rate && !isNaN(parseFloat(String(r.rate))) ? parseFloat(String(r.rate)).toFixed(2) : '-'}
+                    </div>
                   </td>
                   <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-xs font-bold text-indigo-600 dark:text-indigo-400 text-right bg-slate-50/50 dark:bg-slate-800/50">
                     {r.rm.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

@@ -59,6 +59,7 @@ export interface Order {
   date: string;
   status: string;
   remark?: string;
+  firebase_id?: string;
 }
 
 export interface MYPayment {
@@ -70,6 +71,7 @@ export interface MYPayment {
   date: string;
   note?: string;
   order_ids?: number[];
+  firebase_id?: string;
 }
 
 export interface BDPayment {
@@ -81,6 +83,7 @@ export interface BDPayment {
   date: string;
   note?: string;
   order_ids?: number[];
+  firebase_id?: string;
 }
 
 export interface Conversion {
