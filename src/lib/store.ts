@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { saveAs } from 'file-saver';
-import { MYAgent, BDAgent, Order, MYPayment, BDPayment, Conversion, Expense, User, CollectionMethod, Withdrawal, Deposit, RateHistory } from '../types';
+import { MYAgent, BDAgent, Order, MYPayment, BDPayment, Conversion, Expense, User, CollectionMethod, Withdrawal, Deposit, RateHistory, LoanEntity, LoanTransaction } from '../types';
 import { db, auth } from './firebase';
 import { 
   collection, 
@@ -65,6 +65,8 @@ interface AppState {
   expenses: Expense[];
   withdrawals: Withdrawal[];
   deposits: Deposit[];
+  loans: LoanEntity[];
+  loanTransactions: LoanTransaction[];
   defaultRate: number;
   rateHistory: RateHistory[];
   dateFormat: string;
@@ -90,6 +92,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   expenses: load('rf_expenses'),
   withdrawals: load('rf_withdrawals'),
   deposits: load('rf_deposits'),
+  loans: [],
+  loanTransactions: [],
   defaultRate: Number(localStorage.getItem('rf_default_rate') || 0),
   rateHistory: load('rf_rate_history'),
   dateFormat: localStorage.getItem('rf_date_format') || 'DD-MM-YYYY',
@@ -345,6 +349,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     unsubscribers.push(setupListener('deposits', 'deposits'));
     unsubscribers.push(setupListener('collection_methods', 'collectionMethods'));
     unsubscribers.push(setupListener('rate_history', 'rateHistory'));
+    unsubscribers.push(setupListener('loans', 'loans'));
+    unsubscribers.push(setupListener('loan_transactions', 'loanTransactions'));
 
     // Listen to global settings
     unsubscribers.push(onSnapshot(doc(db, 'settings', 'global'), (snapshot) => {
@@ -1116,6 +1122,82 @@ export const store = {
     }
   },
 
+  getLoans: () => useAppStore.getState().loans,
+  addLoan: async (name: string) => {
+    const newItem = {
+      id: Date.now() + Math.floor(Math.random() * 1000),
+      name
+    };
+    try {
+      await addDoc(collection(db, 'loans'), newItem);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'loans');
+    }
+    return newItem;
+  },
+  deleteLoan: async (id: number) => {
+    try {
+      const q = query(collection(db, 'loans'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        await deleteDoc(doc(db, 'loans', snap.docs[0].id));
+      }
+      
+      const qTx = query(collection(db, 'loan_transactions'), where('loanId', '==', id));
+      const snapTx = await getDocs(qTx);
+      const batch = writeBatch(db);
+      snapTx.forEach(d => {
+        batch.delete(doc(db, 'loan_transactions', d.id));
+      });
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'loans');
+    }
+  },
+
+  getLoanTransactions: () => useAppStore.getState().loanTransactions,
+  addLoanTransaction: async (data: any) => {
+    const newItem = {
+      ...data,
+      id: Date.now() + Math.floor(Math.random() * 1000),
+      loanId: Number(data.loanId)
+    };
+    try {
+      await addDoc(collection(db, 'loan_transactions'), newItem);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'loan_transactions');
+    }
+    return newItem;
+  },
+  updateLoanTransaction: async (id: number, data: any) => {
+    try {
+      const q = query(collection(db, 'loan_transactions'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const existing = snap.docs[0].data();
+        const updated = {
+          ...existing,
+          ...data,
+          loanId: data.loanId !== undefined ? Number(data.loanId) : existing.loanId
+        };
+        await updateDoc(doc(db, 'loan_transactions', snap.docs[0].id), updated);
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'loan_transactions');
+    }
+  },
+  deleteLoanTransaction: async (id: number) => {
+    try {
+      const q = query(collection(db, 'loan_transactions'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        await deleteDoc(doc(db, 'loan_transactions', snap.docs[0].id));
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'loan_transactions');
+    }
+  },
+
   getCollectionReport: (start_date?: string, end_date?: string, my_agent_id?: string, bd_agent_id?: string) => {
     const { myPayments, withdrawals } = useAppStore.getState();
     
@@ -1634,19 +1716,23 @@ export const store = {
   },
 
   getBackupData: () => {
+    const state = useAppStore.getState();
     return {
-      users: load('rf_users'),
-      myAgents: load('rf_my_agents'),
-      bdAgents: load('rf_bd_agents'),
-      orders: load('rf_orders'),
-      myPayments: load('rf_my_payments'),
-      bdPayments: load('rf_bd_payments'),
-      conversions: load('rf_conversions'),
-      expenses: load('rf_expenses'),
-      withdrawals: load('rf_withdrawals'),
-      deposits: load('rf_deposits'),
-      collectionMethods: load('rf_collection_methods'),
-      defaultRate: localStorage.getItem('rf_default_rate'),
+      users: state.users,
+      myAgents: state.myAgents,
+      bdAgents: state.bdAgents,
+      orders: state.orders,
+      myPayments: state.myPayments,
+      bdPayments: state.bdPayments,
+      conversions: state.conversions,
+      expenses: state.expenses,
+      withdrawals: state.withdrawals,
+      deposits: state.deposits,
+      collectionMethods: state.collectionMethods,
+      rateHistory: state.rateHistory,
+      loans: state.loans,
+      loanTransactions: state.loanTransactions,
+      defaultRate: state.defaultRate,
       backupDate: new Date().toISOString()
     };
   },

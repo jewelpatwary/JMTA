@@ -96,6 +96,14 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /loans/{loanId} {
+      allow read, write: if true;
+    }
+
+    match /loan_transactions/{txId} {
+      allow read, write: if true;
+    }
+
     match /settings/{sId} {
       allow read, write: if true;
     }

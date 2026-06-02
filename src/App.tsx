@@ -52,8 +52,21 @@ import {
 } from 'recharts';
 import { cn, formatCurrency, formatDate } from './lib/utils';
 import { db } from './lib/firebase';
+import { 
+  collection, 
+  onSnapshot, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  doc, 
+  getDocs, 
+  query, 
+  where,
+  orderBy,
+  writeBatch
+} from 'firebase/firestore';
 import { store, useAppStore } from './lib/store';
-import { User, MYAgent, BDAgent, Order, MYPayment, BDPayment, Conversion, Expense, CollectionMethod, Withdrawal } from './types';
+import { User, MYAgent, BDAgent, Order, MYPayment, BDPayment, Conversion, Expense, CollectionMethod, Withdrawal, LoanEntity, LoanTransaction, CalculationRow } from './types';
 
 // --- Components ---
 
@@ -3077,18 +3090,18 @@ export default function App() {
             setActiveTab('orders');
           }} />}
           {activeTab === 'default-rate' && <DefaultRateSettings />}
-          {activeTab === 'my-agents' && <MYAgents token={token!} onAgentAdded={refresh} onBulkUpload={() => handleBulkUpload('MY')} />}
-          {activeTab === 'bd-agents' && <BDAgents token={token!} onAgentAdded={refresh} onBulkUpload={() => handleBulkUpload('BD')} />}
-          {activeTab === 'orders' && <Orders token={token!} onOrderAdded={refresh} initialFilters={orderFilters} onBulkUpload={() => setShowBulkOrderUpload(true)} />}
-          {activeTab === 'payment' && <PaymentPage token={token!} onPaymentAdded={refresh} onViewLedger={(type, id) => {
+          {activeTab === 'my-agents' && <MYAgents token={token!} onBulkUpload={() => handleBulkUpload('MY')} />}
+          {activeTab === 'bd-agents' && <BDAgents token={token!} onBulkUpload={() => handleBulkUpload('BD')} />}
+          {activeTab === 'orders' && <Orders token={token!} initialFilters={orderFilters} onBulkUpload={() => setShowBulkOrderUpload(true)} />}
+          {activeTab === 'payment' && <PaymentPage token={token!} onViewLedger={(type, id) => {
             setReportFilters({
               type: 'ledger',
               [type === 'MY' ? 'my_agent_id' : 'bd_agent_id']: id.toString()
             });
             setActiveTab('reports');
           }} />}
-          {activeTab === 'conversion' && <ConversionTab token={token!} onConversionAdded={refresh} />}
-          {activeTab === 'expenses' && <Expenses token={token!} onExpenseAdded={refresh} />}
+          {activeTab === 'conversion' && <ConversionTab token={token!} />}
+          {activeTab === 'expenses' && <Expenses token={token!} />}
           {activeTab === 'balances' && <BankBalancePage />}
           {activeTab === 'calculation' && <CalculationPage />}
           {activeTab === 'loan' && <LoanPage />}
@@ -5608,29 +5621,10 @@ function Expenses({ token, onExpenseAdded }: { token: string; onExpenseAdded?: (
 }
 
 // --- Loan Component ---
-interface LoanEntity {
-  id: number;
-  name: string;
-}
-
-interface LoanTransaction {
-  id: number;
-  loanId: number;
-  date: string;
-  description: string;
-  drAmount: string;
-  crAmount: string;
-}
 
 function LoanPage() {
-  const [loans, setLoans] = useState<LoanEntity[]>(() => {
-    const saved = localStorage.getItem('demo_loans');
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [transactions, setTransactions] = useState<LoanTransaction[]>(() => {
-    const saved = localStorage.getItem('demo_loan_tx');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [loans, setLoans] = useState<LoanEntity[]>([]);
+  const [transactions, setTransactions] = useState<LoanTransaction[]>([]);
   const [activeLoan, setActiveLoan] = useState<LoanEntity | null>(null);
 
   // General States
@@ -5643,55 +5637,156 @@ function LoanPage() {
   const [editingTx, setEditingTx] = useState<LoanTransaction | null>(null);
   const [addTxData, setAddTxData] = useState({ date: new Date().toISOString().split('T')[0], description: '', drAmount: '', crAmount: '' });
 
+  // Sync to Firestore with LocalStorage migration helper
+  useEffect(() => {
+    let active = true;
+
+    const runMigrationAndSync = async () => {
+      // 1. Check local storage
+      const localLoansSaved = localStorage.getItem('demo_loans');
+      const localTxsSaved = localStorage.getItem('demo_loan_tx');
+
+      if (localLoansSaved) {
+        try {
+          const parsedLocalLoans = JSON.parse(localLoansSaved);
+          if (Array.isArray(parsedLocalLoans) && parsedLocalLoans.length > 0) {
+            // Get existing loans from firestore first to avoid duplicate additions
+            const q = query(collection(db, 'loans'));
+            const snap = await getDocs(q);
+            const existingIds = new Set(snap.docs.map(doc => doc.data().id));
+            
+            for (const l of parsedLocalLoans) {
+              if (l && l.id && !existingIds.has(l.id)) {
+                await addDoc(collection(db, 'loans'), {
+                  id: l.id,
+                  name: l.name || ''
+                });
+              }
+            }
+          }
+          localStorage.removeItem('demo_loans');
+        } catch (e) {
+          console.error("Migration error for loans:", e);
+        }
+      }
+
+      if (localTxsSaved) {
+        try {
+          const parsedLocalTxs = JSON.parse(localTxsSaved);
+          if (Array.isArray(parsedLocalTxs) && parsedLocalTxs.length > 0) {
+            // Get existing tx from firestore to avoid duplicates
+            const q = query(collection(db, 'loan_transactions'));
+            const snap = await getDocs(q);
+            const existingIds = new Set(snap.docs.map(doc => doc.data().id));
+
+            for (const t of parsedLocalTxs) {
+              if (t && t.id && !existingIds.has(t.id)) {
+                await addDoc(collection(db, 'loan_transactions'), {
+                  id: t.id,
+                  loanId: Number(t.loanId),
+                  date: t.date || '',
+                  description: t.description || '',
+                  drAmount: t.drAmount || '',
+                  crAmount: t.crAmount || ''
+                });
+              }
+            }
+          }
+          localStorage.removeItem('demo_loan_tx');
+        } catch (e) {
+          console.error("Migration error for transactions:", e);
+        }
+      }
+    };
+
+    runMigrationAndSync();
+
+    const unsubLoans = onSnapshot(collection(db, 'loans'), (snapshot) => {
+      const fbLoans = snapshot.docs.map(doc => ({ ...doc.data() })) as LoanEntity[];
+      if (active) {
+        setLoans(fbLoans);
+      }
+    });
+
+    const unsubTx = onSnapshot(collection(db, 'loan_transactions'), (snapshot) => {
+      const fbTx = snapshot.docs.map(doc => ({ ...doc.data() })) as LoanTransaction[];
+      if (active) {
+        setTransactions(fbTx);
+      }
+    });
+
+    return () => {
+      active = false;
+      unsubLoans();
+      unsubTx();
+    };
+  }, []);
+
   const totalCurrentBalance = loans.reduce((sum, loan) => {
     const loanTxs = transactions.filter(t => t.loanId === loan.id);
     const balance = loanTxs.reduce((loanSum, t) => loanSum + (parseFloat(t.drAmount) || 0) - (parseFloat(t.crAmount) || 0), 0);
     return sum + balance;
   }, 0);
 
-  useEffect(() => {
-    localStorage.setItem('demo_loans', JSON.stringify(loans));
-  }, [loans]);
-
-  useEffect(() => {
-    localStorage.setItem('demo_loan_tx', JSON.stringify(transactions));
-  }, [transactions]);
-
-  const handleAddLoan = (e: React.FormEvent) => {
+  const handleAddLoan = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!loanName.trim()) return;
-    setLoans([...loans, { id: Date.now(), name: loanName }]);
+    try {
+      await addDoc(collection(db, 'loans'), { id: Date.now(), name: loanName });
+    } catch (err) {
+      console.error("Error adding loan:", err);
+    }
     setLoanName('');
     setShowAddLoan(false);
   };
   
-  const handleDeleteLoan = (id: number) => {
+  const handleDeleteLoan = async (id: number) => {
     if (confirm('Are you sure you want to delete this loan and all its transactions?')) {
-      setLoans(loans.filter(l => l.id !== id));
-      setTransactions(transactions.filter(t => t.loanId !== id));
+      try {
+        const q = query(collection(db, 'loans'), where('id', '==', id));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          await deleteDoc(doc(db, 'loans', snap.docs[0].id));
+        }
+
+        const tq = query(collection(db, 'loan_transactions'), where('loanId', '==', id));
+        const tSnap = await getDocs(tq);
+        tSnap.forEach(async (d) => {
+          await deleteDoc(doc(db, 'loan_transactions', d.id));
+        });
+      } catch (err) {
+        console.error("Error deleting loan:", err);
+      }
     }
   };
 
-  const handleAddTx = (e: React.FormEvent) => {
+  const handleAddTx = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeLoan) return;
-    if (editingTx) {
-      setTransactions(transactions.map(t => t.id === editingTx.id ? {
-        ...t,
-        date: addTxData.date,
-        description: addTxData.description,
-        drAmount: addTxData.drAmount,
-        crAmount: addTxData.crAmount
-      } : t));
-    } else {
-      setTransactions([...transactions, {
-        id: Date.now(),
-        loanId: activeLoan.id,
-        date: addTxData.date,
-        description: addTxData.description,
-        drAmount: addTxData.drAmount,
-        crAmount: addTxData.crAmount
-      }]);
+    try {
+      if (editingTx) {
+        const q = query(collection(db, 'loan_transactions'), where('id', '==', editingTx.id));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          await updateDoc(doc(db, 'loan_transactions', snap.docs[0].id), {
+            date: addTxData.date,
+            description: addTxData.description,
+            drAmount: addTxData.drAmount,
+            crAmount: addTxData.crAmount
+          });
+        }
+      } else {
+        await addDoc(collection(db, 'loan_transactions'), {
+          id: Date.now(),
+          loanId: activeLoan.id,
+          date: addTxData.date,
+          description: addTxData.description,
+          drAmount: addTxData.drAmount,
+          crAmount: addTxData.crAmount
+        });
+      }
+    } catch (err) {
+      console.error("Error saving transaction:", err);
     }
     setShowAddTx(false);
     setEditingTx(null);
@@ -5709,9 +5804,17 @@ function LoanPage() {
     setShowAddTx(true);
   };
   
-  const handleDeleteTx = (id: number) => {
+  const handleDeleteTx = async (id: number) => {
     if (confirm('Are you sure you want to delete this transaction?')) {
-      setTransactions(transactions.filter(t => t.id !== id));
+      try {
+        const q = query(collection(db, 'loan_transactions'), where('id', '==', id));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          await deleteDoc(doc(db, 'loan_transactions', snap.docs[0].id));
+        }
+      } catch (err) {
+        console.error("Error deleting transaction:", err);
+      }
     }
   };
 
@@ -6013,43 +6116,100 @@ function CalculationPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingRowId, setEditingRowId] = useState<number | null>(null);
   const [addFormData, setAddFormData] = useState({ bdTk: '', rate: '', payment: '', lastDue: '' });
-  const [rows, setRows] = useState(() => {
-    const saved = localStorage.getItem('demo_calculation_rows');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
-        }
-      } catch (e) {
-        console.error("Failed to parse saved calculation rows");
-      }
-    }
-    return [{ id: Date.now(), bdTk: '', rate: '', payment: '', lastDue: '' }];
-  });
+  const [rows, setRows] = useState<CalculationRow[]>([]);
 
   useEffect(() => {
-    localStorage.setItem('demo_calculation_rows', JSON.stringify(rows));
-  }, [rows]);
+    let active = true;
 
-  const submitRow = (e: React.FormEvent) => {
+    const runMigrationAndSync = async () => {
+      const saved = localStorage.getItem('demo_calculation_rows');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const q = query(collection(db, 'calculations'));
+            const snap = await getDocs(q);
+            const existingIds = new Set(snap.docs.map(doc => doc.data().id));
+            
+            for (const r of parsed) {
+              if (r && r.id && !existingIds.has(r.id)) {
+                // Ensure we don't accidentally import completely empty default rows
+                if (r.bdTk || r.rate || r.payment || r.lastDue) {
+                  await addDoc(collection(db, 'calculations'), {
+                    id: r.id,
+                    bdTk: r.bdTk || '',
+                    rate: r.rate || '',
+                    payment: r.payment || '',
+                    lastDue: r.lastDue || '',
+                    timestamp: r.timestamp || Date.now()
+                  });
+                }
+              }
+            }
+          }
+          localStorage.removeItem('demo_calculation_rows');
+        } catch (e) {
+          console.error("Migration error for calculations:", e);
+        }
+      }
+    };
+
+    runMigrationAndSync();
+
+    const q = query(collection(db, 'calculations'), orderBy('timestamp', 'asc'));
+    const unsub = onSnapshot(q, (snapshot) => {
+      if (!active) return;
+      const data = snapshot.docs.map(doc => ({ ...doc.data(), firebase_id: doc.id })) as CalculationRow[];
+      if (data.length === 0) {
+        // Provide an initial empty row in state (but don't save to db until edited)
+        setRows([{ id: Date.now(), bdTk: '', rate: '', payment: '', lastDue: '' }]);
+      } else {
+        setRows(data);
+      }
+    });
+
+    return () => {
+      active = false;
+      unsub();
+    };
+  }, []);
+
+  const submitRow = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (editingRowId) {
-      setRows(rows.map(r => r.id === editingRowId ? {
-        ...r,
-        bdTk: addFormData.bdTk,
-        rate: addFormData.rate,
-        payment: addFormData.payment,
-        lastDue: addFormData.lastDue
-      } : r));
-    } else {
-      setRows([...rows, {
-        id: Date.now(),
-        bdTk: addFormData.bdTk,
-        rate: addFormData.rate,
-        payment: addFormData.payment,
-        lastDue: addFormData.lastDue
-      }]);
+    try {
+      if (editingRowId) {
+        const q = query(collection(db, 'calculations'), where('id', '==', editingRowId));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          await updateDoc(doc(db, 'calculations', snap.docs[0].id), {
+            bdTk: addFormData.bdTk,
+            rate: addFormData.rate,
+            payment: addFormData.payment,
+            lastDue: addFormData.lastDue
+          });
+        } else if (rows.length === 1 && rows[0].id === editingRowId && !rows[0].firebase_id) {
+            // It's the default unsaved row
+            await addDoc(collection(db, 'calculations'), {
+              id: editingRowId,
+              bdTk: addFormData.bdTk,
+              rate: addFormData.rate,
+              payment: addFormData.payment,
+              lastDue: addFormData.lastDue,
+              timestamp: Date.now()
+            });
+        }
+      } else {
+        await addDoc(collection(db, 'calculations'), {
+          id: Date.now(),
+          bdTk: addFormData.bdTk,
+          rate: addFormData.rate,
+          payment: addFormData.payment,
+          lastDue: addFormData.lastDue,
+          timestamp: Date.now()
+        });
+      }
+    } catch (err) {
+      console.error("Error saving calculation row:", err);
     }
     setShowAddModal(false);
     setEditingRowId(null);
@@ -6067,17 +6227,56 @@ function CalculationPage() {
     setShowAddModal(true);
   };
 
-  const updateRow = (id: number, field: string, value: string) => {
-    setRows(rows.map(r => r.id === id ? { ...r, [field]: value } : r));
+  const updateRow = async (id: number, field: string, value: string) => {
+    try {
+      const q = query(collection(db, 'calculations'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        await updateDoc(doc(db, 'calculations', snap.docs[0].id), {
+          [field]: value
+        });
+      } else if (rows.length === 1 && rows[0].id === id && !rows[0].firebase_id) {
+         // Default unsaved row
+         await addDoc(collection(db, 'calculations'), {
+            id,
+            bdTk: '',
+            rate: '',
+            payment: '',
+            lastDue: '',
+            [field]: value,
+            timestamp: Date.now()
+          });
+      }
+    } catch (err) {
+      console.error("Error updating field:", err);
+    }
   };
   
-  const removeRow = (id: number) => {
-    if (rows.length === 1) return;
-    setRows(rows.filter(r => r.id !== id));
+  const removeRow = async (id: number) => {
+    try {
+      const q = query(collection(db, 'calculations'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        await deleteDoc(doc(db, 'calculations', snap.docs[0].id));
+      }
+    } catch (err) {
+      console.error("Error deleting row:", err);
+    }
   };
 
-  const clearAll = () => {
-    setRows([{ id: Date.now(), bdTk: '', rate: '', payment: '', lastDue: '' }]);
+  const clearAll = async () => {
+    if (confirm("Are you sure you want to clear all calculations?")) {
+      try {
+        const snap = await getDocs(collection(db, 'calculations'));
+        const batch = writeBatch(db);
+        snap.docs.forEach(d => {
+          batch.delete(d.ref);
+        });
+        await batch.commit();
+      } catch (err) {
+        console.error("Error clearing calculations:", err);
+      }
+    }
   };
 
   let runningBalance = 0;

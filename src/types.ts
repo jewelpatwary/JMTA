@@ -137,3 +137,28 @@ export interface Deposit {
   date: string;
   note?: string;
 }
+
+export interface LoanEntity {
+  id: number;
+  name: string;
+  firebase_id?: string;
+}
+
+export interface LoanTransaction {
+  id: number;
+  loanId: number;
+  date: string;
+  description: string;
+  drAmount: string;
+  crAmount: string;
+  firebase_id?: string;
+}
+
+export interface CalculationRow {
+  id: number;
+  bdTk: string;
+  rate: string;
+  payment: string;
+  lastDue: string;
+  firebase_id?: string;
+}

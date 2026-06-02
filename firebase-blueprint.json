@@ -197,6 +197,30 @@
       },
       "required": ["id", "amount", "date"]
     },
+    "Loan": {
+      "title": "Loan",
+      "description": "Person or entity name and initial details of loan",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "name": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    },
+    "LoanTransaction": {
+      "title": "Loan Transaction",
+      "description": "Individual transaction entry in a loan ledger",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "loanId": { "type": "number" },
+        "date": { "type": "string" },
+        "description": { "type": "string" },
+        "drAmount": { "type": "string" },
+        "crAmount": { "type": "string" }
+      },
+      "required": ["id", "loanId", "date"]
+    },
     "GlobalSettings": {
       "title": "Global Settings",
       "description": "Global application settings",
@@ -219,6 +243,8 @@
     "rate_history": { "schema": "RateHistory", "description": "Rate history collection" },
     "withdrawals": { "schema": "Withdrawal", "description": "Withdrawals collection" },
     "deposits": { "schema": "Deposit", "description": "Deposits collection" },
+    "loans": { "schema": "Loan", "description": "Loans collection" },
+    "loan_transactions": { "schema": "LoanTransaction", "description": "Loan transactions ledger collection" },
     "settings": { "schema": "GlobalSettings", "description": "Settings collection" }
   }
 }
