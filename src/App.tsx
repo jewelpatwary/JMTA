@@ -39,6 +39,7 @@ import XLSX from 'xlsx-js-style';
 import { toJpeg } from 'html-to-image';
 import { saveAs } from 'file-saver';
 import Papa from 'papaparse';
+import { MessageSquare, Send, CheckSquare, ExternalLink } from 'lucide-react';
 import { 
   LineChart, 
   Line, 
@@ -66,7 +67,7 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { store, useAppStore } from './lib/store';
-import { User, MYAgent, BDAgent, Order, MYPayment, BDPayment, Conversion, Expense, CollectionMethod, Withdrawal, LoanEntity, LoanTransaction, CalculationRow } from './types';
+import { User, MYAgent, BDAgent, Order, MYPayment, BDPayment, Conversion, Expense, CollectionMethod, Withdrawal, RateHistory, LoanEntity, LoanTransaction, CalculationRow } from './types';
 
 // --- Components ---
 
@@ -239,6 +240,127 @@ const SearchableSelect = ({
                     {value.toString() === opt.value.toString() && <Check size={16} />}
                   </div>
                 )) : (
+                  <div className="py-8 text-center text-slate-500 text-sm">No results found</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+    </div>
+  );
+};
+
+const MultiSearchableSelect = ({ 
+  label, 
+  values, 
+  options, 
+  onChange, 
+  placeholder = "Select options"
+}: { 
+  label?: string; 
+  values: string[]; 
+  options: { value: any; label: string }[]; 
+  onChange: (values: string[]) => void;
+  placeholder?: string;
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  
+  const selectedOptions = options.filter(opt => values.includes(opt.value.toString()));
+  const filteredOptions = options.filter(opt => 
+    opt.label.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const toggleOption = (val: string) => {
+    if (val === 'all') {
+       onChange(['all']);
+       return;
+    }
+    let newVals = [...values];
+    if (newVals.includes('all')) newVals = newVals.filter(v => v !== 'all');
+    if (val === '') { // clear all
+      onChange(['']);
+      return;
+    }
+    if (newVals.includes('')) newVals = newVals.filter(v => v !== '');
+    
+    if (newVals.includes(val)) {
+      newVals = newVals.filter(v => v !== val);
+    } else {
+      newVals.push(val);
+    }
+    
+    if (newVals.length === 0) newVals = [''];
+    onChange(newVals);
+  };
+
+  const displayText = selectedOptions.length === 0 
+    ? placeholder 
+    : selectedOptions.length === 1 
+      ? selectedOptions[0].label 
+      : `${selectedOptions.length} items selected`;
+
+  return (
+    <div className="space-y-1 relative">
+      {label && <label className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{label}</label>}
+      <div 
+        onClick={() => setIsOpen(true)}
+        className={cn(
+          "w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg cursor-pointer flex items-center justify-between text-xs dark:text-white min-h-[32px]",
+          selectedOptions.length === 0 && "text-slate-400"
+        )}
+      >
+        <span className="truncate">{displayText}</span>
+        <ChevronDown size={12} className="text-slate-400 flex-shrink-0" />
+      </div>
+
+      {isOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+            <div 
+              className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[80vh]"
+            >
+              <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                <h3 className="font-bold text-sm dark:text-white">{label || "Select Options"}</h3>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setIsOpen(false)} className="px-3 py-1.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-lg text-xs font-semibold hover:opacity-90 transition-opacity">Done</button>
+                  <button onClick={() => setIsOpen(false)} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">
+                    <Plus className="rotate-45 w-5 h-5 text-slate-500" />
+                  </button>
+                </div>
+              </div>
+              
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
+                  <input 
+                    autoFocus
+                    type="text" 
+                    placeholder="Search..." 
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-sm outline-none dark:text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-2">
+                {filteredOptions.length > 0 ? filteredOptions.map((opt, idx) => {
+                  const isSelected = values.includes(opt.value.toString());
+                  return (
+                  <div 
+                    key={`${opt.value}-${idx}`}
+                    onClick={() => toggleOption(opt.value.toString())}
+                    className={cn(
+                      "p-3 rounded-xl cursor-pointer transition-all flex items-center justify-between group",
+                      isSelected 
+                        ? "bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 font-bold" 
+                        : "hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
+                    )}
+                  >
+                    <span className="text-sm">{opt.label}</span>
+                    {isSelected && <Check size={16} />}
+                  </div>
+                )}) : (
                   <div className="py-8 text-center text-slate-500 text-sm">No results found</div>
                 )}
               </div>
@@ -601,7 +723,10 @@ const PaymentModal = ({
     let total = 0;
     recentOrders.forEach(o => {
       if (newSet.has(o.id)) {
-        total += type === 'MY' ? o.amount_myr : o.amount_bdt;
+        const orderAmount = (o.remaining_balance !== undefined && o.remaining_balance > 0)
+          ? o.remaining_balance
+          : (type === 'MY' ? o.amount_myr : o.amount_bdt);
+        total += orderAmount;
       }
     });
     setFormData(prev => ({ ...prev, amount: total > 0 ? total.toFixed(2) : '' }));
@@ -764,14 +889,14 @@ const PaymentModal = ({
             <Card className="p-5 h-full flex flex-col">
               <h3 className="font-bold text-slate-900 dark:text-white mb-4">Select Orders to Knock Off</h3>
               <div className="flex-1 overflow-y-auto pr-2 space-y-2 max-h-[60vh]">
-                {recentOrders.length > 0 ? recentOrders.map(order => {
+                {recentOrders.length > 0 ? recentOrders.map((order, idx) => {
                   const isPaid = order.status === 'paid';
                   const isSelected = selectedOrders.has(order.id);
                   const amount = type === 'MY' ? order.amount_myr : order.amount_bdt;
                   
                   return (
                     <div 
-                      key={order.id} 
+                      key={`${order.id}-${idx}`} 
                       onClick={() => toggleOrder(order)}
                       className={cn(
                         "grid grid-cols-12 gap-2 items-center p-3 rounded-xl border transition-all text-xs",
@@ -796,6 +921,11 @@ const PaymentModal = ({
                         <div className="text-[9px] text-slate-400">
                            {type === 'MY' ? order.amount_bdt.toLocaleString() + ' BDT' : formatCurrency(order.amount_myr)}
                         </div>
+                        {order.remaining_balance !== undefined && order.remaining_balance > 0 && (
+                          <div className="text-[9px] text-amber-500 font-bold">
+                            Due: {order.remaining_balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -946,8 +1076,8 @@ function ViewPaymentsModal({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {currentPayments.map(p => (
-                  <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                {currentPayments.map((p, idx) => (
+                  <tr key={`${p.id}-${idx}`} className="hover:bg-slate-50 transition-colors">
                     <td className="px-3 py-2 text-xs whitespace-nowrap">{formatDate(p.date)}</td>
                     <td className="px-3 py-2">
                       <div className="flex flex-col">
@@ -1291,8 +1421,8 @@ function ViewTransactionsModal({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {filteredTransactions.map(t => (
-                  <tr key={t.id} className="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                {filteredTransactions.map((t, idx) => (
+                  <tr key={`${t.id}-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
                     <td className="px-2 py-2 text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap border-r border-slate-200 dark:border-slate-700">{formatDate(t.date)}</td>
                     <td className="px-2 py-2 border-r border-slate-200 dark:border-slate-700">
                       <span className={cn(
@@ -1597,8 +1727,8 @@ const ProfileSidebar = ({
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                            {filteredMethods.map(method => (
-                              <React.Fragment key={method.id}>
+                            {filteredMethods.map((method, idx) => (
+                              <React.Fragment key={`${method.id}-${idx}`}>
                                 <tr 
                                   onClick={() => setExpandedMethodId(expandedMethodId === method.id ? null : method.id)}
                                   className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
@@ -1660,8 +1790,8 @@ const ProfileSidebar = ({
                                   <tr>
                                     <td colSpan={2} className="bg-slate-50/30 dark:bg-slate-800/20 p-2">
                                       <div className="space-y-1">
-                                        {method.subItems.map(sub => (
-                                          <div key={sub.id} className="flex items-center justify-between group/sub px-3 py-1.5 hover:bg-white dark:hover:bg-slate-800 rounded-lg transition-all">
+                                        {method.subItems.map((sub, idx) => (
+                                          <div key={`${sub.id}-${idx}`} className="flex items-center justify-between group/sub px-3 py-1.5 hover:bg-white dark:hover:bg-slate-800 rounded-lg transition-all">
                                             <div className="flex items-center gap-2 flex-1">
                                               <div className="w-1 h-1 rounded-full bg-indigo-400" />
                                               {editingSubId?.subId === sub.id ? (
@@ -2704,8 +2834,8 @@ function PaymentPage({ token, onViewLedger, onPaymentAdded }: { token: string; o
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {filteredAgents.length > 0 ? (
-                filteredAgents.map((agent: any) => (
-                  <tr key={agent.id} className="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                filteredAgents.map((agent: any, idx: number) => (
+                  <tr key={`${agent.id}-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
                     <td className="px-2 py-2 text-xs font-medium text-slate-900 dark:text-white border-r border-slate-200 dark:border-slate-700">{agent.name}</td>
                     <td className="px-2 py-2 text-xs font-bold text-slate-900 dark:text-white border-r border-slate-200 dark:border-slate-700">
                       {activeTab === 'MY' 
@@ -3041,6 +3171,7 @@ export default function App() {
         <nav className="flex-1 p-4 space-y-1">
           <NavItem active={activeTab === 'dashboard'} onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }} icon={<LayoutDashboard size={20} />} label="Dashboard" />
           <NavItem active={activeTab === 'default-rate'} onClick={() => { setActiveTab('default-rate'); setIsMobileMenuOpen(false); }} icon={<TrendingUp size={20} />} label="Default Rate" />
+          <NavItem active={activeTab === 'rate-history'} onClick={() => { setActiveTab('rate-history'); setIsMobileMenuOpen(false); }} icon={<Clock size={20} />} label="Rate History" />
           <NavItem active={activeTab === 'my-agents'} onClick={() => { setActiveTab('my-agents'); setIsMobileMenuOpen(false); }} icon={<Users size={20} />} label="MY Agents" />
           <NavItem active={activeTab === 'bd-agents'} onClick={() => { setActiveTab('bd-agents'); setIsMobileMenuOpen(false); }} icon={<Globe size={20} />} label="BD Agents" />
           <NavItem active={activeTab === 'orders'} onClick={() => { setOrderFilters(null); setActiveTab('orders'); setIsMobileMenuOpen(false); }} icon={<ArrowRightLeft size={20} />} label="Orders" />
@@ -3050,6 +3181,7 @@ export default function App() {
           <NavItem active={activeTab === 'balances'} onClick={() => { setActiveTab('balances'); setIsMobileMenuOpen(false); }} icon={<Scale size={20} />} label="Bank Balance" />
           <NavItem active={activeTab === 'calculation'} onClick={() => { setActiveTab('calculation'); setIsMobileMenuOpen(false); }} icon={<Calculator size={20} />} label="Calculation" />
           <NavItem active={activeTab === 'loan'} onClick={() => { setActiveTab('loan'); setIsMobileMenuOpen(false); }} icon={<FileText size={20} />} label="Loan" />
+
           <NavItem active={activeTab === 'reports'} onClick={() => { setReportFilters(null); setActiveTab('reports'); setIsMobileMenuOpen(false); }} icon={<BarChart3 size={20} />} label="Reports" />
         </nav>
 
@@ -3089,7 +3221,8 @@ export default function App() {
             setOrderFilters({ start: today, end: today });
             setActiveTab('orders');
           }} />}
-          {activeTab === 'default-rate' && <DefaultRateSettings />}
+          {activeTab === 'default-rate' && <DefaultRateSettings setActiveTab={setActiveTab} />}
+          {activeTab === 'rate-history' && <RateHistoryPage />}
           {activeTab === 'my-agents' && <MYAgents token={token!} onBulkUpload={() => handleBulkUpload('MY')} />}
           {activeTab === 'bd-agents' && <BDAgents token={token!} onBulkUpload={() => handleBulkUpload('BD')} />}
           {activeTab === 'orders' && <Orders token={token!} initialFilters={orderFilters} onBulkUpload={() => setShowBulkOrderUpload(true)} />}
@@ -3759,131 +3892,201 @@ function BulkPaymentUploadModal({
 }
 
 // --- Default Rate Settings Component ---
-function DefaultRateSettings() {
-  const { defaultRate, setDefaultRate } = useAppStore();
-  const [rate, setRate] = useState(defaultRate.toString());
+function DefaultRateSettings({ setActiveTab }: { setActiveTab: (tab: string) => void }) {
+  const { defaultMobileRate, defaultBankRate, setDefaultRates } = useAppStore();
+  const [mobileRate, setMobileRate] = useState((defaultMobileRate || 0).toString());
+  const [bankRate, setBankRate] = useState((defaultBankRate || 0).toString());
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [showSuccess, setShowSuccess] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
+  const history = [...store.getRateHistory()].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+
+  useEffect(() => {
+    setMobileRate((defaultMobileRate || 0).toString());
+    setBankRate((defaultBankRate || 0).toString());
+  }, [defaultMobileRate, defaultBankRate]);
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    setDefaultRate(parseFloat(rate) || 0, date);
+    setDefaultRates(parseFloat(mobileRate) || 0, parseFloat(bankRate) || 0, date);
     setShowSuccess(true);
     setTimeout(() => setShowSuccess(false), 3000);
   };
 
   return (
-    <div className="max-w-md mx-auto mt-8 relative">
+    <div className="max-w-5xl mx-auto mt-8 relative">
       {showSuccess && (
-        <div 
-          className="absolute -top-16 left-0 right-0 flex justify-center z-50"
-        >
+        <div className="absolute -top-16 left-0 right-0 flex justify-center z-50">
           <div className="bg-emerald-500 text-white px-6 py-3 rounded-xl shadow-lg shadow-emerald-500/20 flex items-center gap-2 font-bold">
-            <div className="w-5 h-5 bg-white/20 rounded-full flex items-center justify-center">
-              <Check className="w-3 h-3 text-white" />
-            </div>
-            Default Rate Saved Successfully!
+            <Check className="w-5 h-5" />
+            Default Rates Saved Successfully!
           </div>
         </div>
       )}
 
-      <Card className="p-6">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg">
-              <TrendingUp className="text-indigo-600 dark:text-indigo-400" size={24} />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">Default Order Rate</h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Set the standard rate for new orders.</p>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <Card className="p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg">
+                <TrendingUp className="text-indigo-600 dark:text-indigo-400" size={24} />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white">Default Order Rates</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Set the standard rates for new orders.</p>
+              </div>
             </div>
           </div>
-          <Button variant="outline" size="sm" onClick={() => setShowHistory(true)} className="text-[10px] h-8 gap-1">
-            <Clock size={14} /> History
-          </Button>
-        </div>
 
-        <form onSubmit={handleSave} className="space-y-4">
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Select Date</label>
-            <input 
-              type="date" 
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white transition-all"
-              required
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Exchange Rate (BDT per RM)</label>
-            <div className="relative">
+          <form onSubmit={handleSave} className="space-y-4">
+            {/* ... fields ... */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Select Date</label>
               <input 
-                type="number" 
-                step="0.01"
-                value={rate}
-                onChange={(e) => setRate(e.target.value)}
-                placeholder="0.00"
-                className="w-full pl-4 pr-12 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-lg font-bold focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white transition-all"
+                type="date" 
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white transition-all"
                 required
               />
-              <div className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">BDT</div>
             </div>
-            <p className="text-[11px] text-slate-400 italic">This rate will be pre-filled when creating new orders.</p>
+            {/* ... fields ... */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Mobile Transfer Rate (BDT per RM)</label>
+              <div className="relative">
+                <input 
+                  type="number" 
+                  step="0.01"
+                  value={mobileRate}
+                  onChange={(e) => setMobileRate(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full pl-4 pr-12 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-lg font-bold focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white transition-all"
+                  required
+                />
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">BDT</div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Bank Transfer Rate (BDT per RM)</label>
+              <div className="relative">
+                <input 
+                  type="number" 
+                  step="0.01"
+                  value={bankRate}
+                  onChange={(e) => setBankRate(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full pl-4 pr-12 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-lg font-bold focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white transition-all"
+                  required
+                />
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">BDT</div>
+              </div>
+              <p className="text-[11px] text-slate-400 italic">These rates will be pre-filled when creating new orders.</p>
+            </div>
+
+            <Button type="submit" className="w-full py-3 text-sm font-bold shadow-lg shadow-indigo-500/20">
+              Save Default Rates
+            </Button>
+          </form>
+        </Card>
+
+        <Card className="p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white">Recent Rate History</h2>
+            <Button variant="outline" size="sm" onClick={() => setActiveTab('rate-history')} className="text-[10px] h-8 gap-1">
+              <Clock size={14} /> View All
+            </Button>
           </div>
-
-          <Button type="submit" className="w-full py-3 text-sm font-bold shadow-lg shadow-indigo-500/20">
-            Save Default Rate
-          </Button>
-        </form>
-      </Card>
-      
-      <div className="mt-6 p-4 bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900/20 rounded-xl flex gap-3">
-        <AlertCircle className="text-amber-600 dark:text-amber-400 shrink-0" size={20} />
-        <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
-          <strong>Note:</strong> Changing this rate only affects <strong>new</strong> orders. Existing orders will keep the rate they were created with.
-        </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-800">
+                <tr>
+                  <th className="px-3 py-2">Date</th>
+                  <th className="px-3 py-2">Mobile</th>
+                  <th className="px-3 py-2">Bank</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.slice(0, 10).map((h, i) => (
+                  <tr key={i} className="border-b border-slate-100 dark:border-slate-800">
+                    <td className="px-3 py-3">{new Date(h.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</td>
+                    <td className="px-3 py-3 font-mono">{(h.mobileRate || 0).toFixed(2)}</td>
+                    <td className="px-3 py-3 font-mono">{(h.bankRate || 0).toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       </div>
-
-      {showHistory && <RateHistoryModal onClose={() => setShowHistory(false)} />}
     </div>
   );
 }
 
-function RateHistoryModal({ onClose }: { onClose: () => void }) {
-  const history = [...store.getRateHistory()].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+function RateHistoryPage() {
+  const [history, setHistory] = useState<RateHistory[]>([...(store.getRateHistory() as RateHistory[])].sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))));
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editMobileRate, setEditMobileRate] = useState('');
+  const [editBankRate, setEditBankRate] = useState('');
+  
+  const months = (Array.from(new Set(history.map((h: RateHistory) => h.date.slice(0, 7)))) as string[]).sort((a, b) => b.localeCompare(a));
+  const filteredHistory = history.filter(h => h.date.startsWith(selectedMonth));
+  
+  const handleEdit = (h: RateHistory) => {
+    setEditingId(h.id);
+    setEditMobileRate(h.mobileRate.toString());
+    setEditBankRate(h.bankRate.toString());
+  };
+  
+  const handleSave = async (id: number) => {
+    await store.updateRateHistoryItem(id, parseFloat(editMobileRate), parseFloat(editBankRate));
+    setHistory([...(store.getRateHistory() as RateHistory[])].sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))));
+    setEditingId(null);
+  };
   
   return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
-        <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
-          <h2 className="text-lg font-bold text-slate-900 dark:text-white">Rate History</h2>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">
-            <Plus className="rotate-45 w-5 h-5 text-slate-500" />
-          </button>
-        </div>
-        <div className="max-h-[60vh] overflow-y-auto p-4">
-          <div className="space-y-2">
-            {history.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 text-sm italic">No history available.</div>
-            ) : (
-              history.map((h) => (
-                <div key={h.id} className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700 transition-colors hover:border-indigo-200 dark:hover:border-indigo-900">
-                  <div>
-                    <p className="text-sm font-bold text-slate-900 dark:text-white">{h.rate.toFixed(2)} <span className="text-[10px] text-slate-400 font-normal ml-1">BDT/RM</span></p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">Rate used for new orders on this day</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-1 rounded-md">
-                      {new Date(h.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                    </p>
-                  </div>
+    <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-sm">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-xl font-bold text-slate-900 dark:text-white">Rate History</h2>
+        <select
+          value={selectedMonth}
+          onChange={(e) => setSelectedMonth(e.target.value)}
+          className="p-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm outline-none dark:text-white"
+        >
+          {months.map(m => (
+            <option key={m} value={m}>{new Date(m + '-01').toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</option>
+          ))}
+        </select>
+      </div>
+      
+      <div className="space-y-3">
+        {filteredHistory.length === 0 ? (
+          <div className="text-center py-8 text-slate-400 text-sm italic">No history available for this month.</div>
+        ) : (
+          filteredHistory.map((h, idx) => (
+            <div key={`${h.id}-${idx}`} className="flex justify-between items-center p-4 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-700">
+              {editingId === h.id ? (
+                <div className="flex gap-2 items-center flex-1">
+                  <input type="number" value={editMobileRate} onChange={e => setEditMobileRate(e.target.value)} className="w-20 p-1 rounded border" />
+                  <input type="number" value={editBankRate} onChange={e => setEditBankRate(e.target.value)} className="w-20 p-1 rounded border" />
+                  <button onClick={() => handleSave(h.id)} className="bg-green-500 text-white p-1 rounded">Save</button>
+                  <button onClick={() => setEditingId(null)} className="bg-gray-500 text-white p-1 rounded">Cancel</button>
                 </div>
-              ))
-            )}
-          </div>
-        </div>
+              ) : (
+                <>
+                  <div>
+                    <p className="text-sm font-bold text-slate-900 dark:text-white">Mobile: {(h.mobileRate || 0).toFixed(2)}</p>
+                    <p className="text-sm font-bold text-slate-900 dark:text-white">Bank: {(h.bankRate || 0).toFixed(2)}</p>
+                    <p className="text-[10px] text-slate-400 font-normal">Date: {h.date}</p>
+                  </div>
+                  <button onClick={() => handleEdit(h)} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full">
+                    <Edit size={16} />
+                  </button>
+                </>
+              )}
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
@@ -3908,17 +4111,20 @@ function MYAgents({ token, onAgentAdded, onBulkUpload }: { token: string; onAgen
     agent.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
     const name = formData.get('name') as string;
     const initial_balance = parseFloat(formData.get('initial_balance') as string) || 0;
     const initial_balance_date = formData.get('initial_balance_date') as string;
+    const default_mobile_rate = parseFloat(formData.get('default_mobile_rate') as string) || 0;
+    const default_bank_rate = parseFloat(formData.get('default_bank_rate') as string) || 0;
     
     if (editingAgent) {
-      store.updateMYAgent(editingAgent.id, { name, initial_balance, initial_balance_date });
+      store.updateMYAgent(editingAgent.id, { name, initial_balance, initial_balance_date, default_mobile_rate, default_bank_rate });
     } else {
-      store.addMYAgent(name, initial_balance, initial_balance_date);
+      store.addMYAgent(name, initial_balance, initial_balance_date, default_mobile_rate, default_bank_rate);
     }
     setShowAdd(false);
     setEditingAgent(null);
@@ -4034,8 +4240,8 @@ function MYAgents({ token, onAgentAdded, onBulkUpload }: { token: string; onAgen
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {currentAgents.map(agent => (
-                <tr key={agent.id} className="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+              {currentAgents.map((agent, idx) => (
+                <tr key={`${agent.id}-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
                   <td className="px-2 py-2 text-xs font-medium text-slate-900 dark:text-white border-r border-slate-200 dark:border-slate-700">{agent.name}</td>
                   <td className="px-2 py-2 text-xs font-bold text-slate-900 dark:text-white border-r border-slate-200 dark:border-slate-700">
                     {formatCurrency((agent.total_payments_myr - agent.total_orders_myr) + (Number(agent.initial_balance) || 0))}
@@ -4057,6 +4263,7 @@ function MYAgents({ token, onAgentAdded, onBulkUpload }: { token: string; onAgen
               <tfoot className="bg-slate-50 dark:bg-slate-800 font-bold border-t-2 border-slate-200 dark:border-slate-700 sticky bottom-0 z-10">
                 <tr>
                   <td className="px-2 py-2 text-xs text-slate-900 dark:text-white text-right border-r border-slate-200 dark:border-slate-700">TOTAL:</td>
+                  <td className="px-2 py-2 border-r border-slate-200 dark:border-slate-700"></td>
                   <td className="px-2 py-2 text-xs text-slate-900 dark:text-white border-r border-slate-200 dark:border-slate-700">
                     {formatCurrency(filteredAgents.reduce((sum, agent) => sum + ((agent.total_payments_myr - agent.total_orders_myr) + (Number(agent.initial_balance) || 0)), 0))}
                   </td>
@@ -4130,6 +4337,9 @@ function MYAgents({ token, onAgentAdded, onBulkUpload }: { token: string; onAgen
             <Card className="p-6">
               <form onSubmit={handleSubmit} className="space-y-4">
                 <Input name="name" label="Agent Name" placeholder="e.g. Agent Alpha" defaultValue={editingAgent?.name} required />
+                <Input name="default_mobile_rate" label="Default Mobile Rate" type="number" step="0.01" placeholder="0.00" defaultValue={editingAgent?.default_mobile_rate} />
+                <Input name="default_bank_rate" label="Default Bank Rate" type="number" step="0.01" placeholder="0.00" defaultValue={editingAgent?.default_bank_rate} />
+
                 <Input name="initial_balance" label="Initial Balance (RM)" type="number" step="0.01" placeholder="0.00" defaultValue={editingAgent?.initial_balance} />
                 <Input name="initial_balance_date" label="Initial Balance Date" type="date" defaultValue={editingAgent?.initial_balance_date || new Date().toISOString().split('T')[0]} />
                 <div className="flex gap-2 pt-4 border-t border-slate-100">
@@ -4177,7 +4387,7 @@ function MYAgents({ token, onAgentAdded, onBulkUpload }: { token: string; onAgen
 
 // --- Orders Component ---
 function Orders({ token, onOrderAdded, initialFilters, onBulkUpload }: { token: string; onOrderAdded?: () => void; initialFilters?: {start: string, end: string} | null; onBulkUpload?: () => void }) {
-  const { orders, myAgents, bdAgents, refresh, defaultRate } = useAppStore();
+  const { orders, myAgents, bdAgents, refresh, defaultMobileRate, defaultBankRate, rateHistory } = useAppStore();
   const [showAdd, setShowAdd] = useState(false);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [isReloading, setIsReloading] = useState(false);
@@ -4197,21 +4407,49 @@ function Orders({ token, onOrderAdded, initialFilters, onBulkUpload }: { token: 
 
   const [formData, setFormData] = useState({
     my_agent_id: '',
-    bd_agent_id: '',
+    bd_agent_id: localStorage.getItem('last_bd_agent_id') || '',
     type: 'bkash',
     amount_bdt: '',
-    rate: defaultRate > 0 ? defaultRate.toString() : '',
+    rate: '',
     amount_myr: '',
     charge: '0',
     date: new Date().toISOString().split('T')[0],
     remark: ''
   });
 
+  const getActiveRate = (dateStr: string, transferType: string, agentId?: string | number) => {
+    if (agentId) {
+      const agent = myAgents.find(a => a.id === Number(agentId));
+      if (agent) {
+        const isMobile = ['bkash', 'nagad'].includes(transferType);
+        const agentRate = isMobile ? agent.default_mobile_rate : agent.default_bank_rate;
+        if (agentRate && agentRate > 0) {
+          return agentRate;
+        }
+      }
+    }
+
+    const isMobile = ['bkash', 'nagad'].includes(transferType);
+    const historyEntry = (rateHistory || []).find(h => h.date === dateStr);
+    if (historyEntry) {
+      const histRate = isMobile ? historyEntry.mobileRate : historyEntry.bankRate;
+      if (histRate && histRate > 0) {
+        return histRate;
+      }
+    }
+
+    return isMobile ? defaultMobileRate : defaultBankRate;
+  };
+
   const handleReload = async () => {
     setIsReloading(true);
     refresh();
     setTimeout(() => setIsReloading(false), 600);
   };
+
+  const lastOrderDate = orders.length > 0 
+    ? [...orders].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0].date
+    : new Date().toISOString().split('T')[0];
 
   const handleCalc = (bdt: string, rate: string) => {
     if (bdt && rate) {
@@ -4231,17 +4469,19 @@ function Orders({ token, onOrderAdded, initialFilters, onBulkUpload }: { token: 
     }
     setShowAdd(false);
     setEditingOrder(null);
+    const nextRate = getActiveRate(formData.date || lastOrderDate, 'bkash', '');
     setFormData({
       my_agent_id: '',
-      bd_agent_id: '',
+      bd_agent_id: formData.bd_agent_id,
       type: 'bkash',
       amount_bdt: '',
-      rate: defaultRate > 0 ? defaultRate.toString() : '',
+      rate: nextRate > 0 ? nextRate.toString() : '',
       amount_myr: '',
       charge: '0',
-      date: new Date().toISOString().split('T')[0],
+      date: formData.date || lastOrderDate,
       remark: ''
     });
+    localStorage.setItem('last_bd_agent_id', formData.bd_agent_id);
     if (onOrderAdded) onOrderAdded();
   };
 
@@ -4403,16 +4643,17 @@ function Orders({ token, onOrderAdded, initialFilters, onBulkUpload }: { token: 
             <Download size={16} className="rotate-180" /> Bulk Upload
           </Button>
           <Button onClick={() => {
+            const initialRate = getActiveRate(lastOrderDate, 'bkash');
             setEditingOrder(null);
             setFormData({
               my_agent_id: '',
               bd_agent_id: '',
               type: 'bkash',
               amount_bdt: '',
-              rate: defaultRate > 0 ? defaultRate.toString() : '',
+              rate: initialRate > 0 ? initialRate.toString() : '',
               amount_myr: '',
               charge: '0',
-              date: new Date().toISOString().split('T')[0],
+              date: lastOrderDate,
               remark: ''
             });
             setShowAdd(true);
@@ -4487,8 +4728,8 @@ function Orders({ token, onOrderAdded, initialFilters, onBulkUpload }: { token: 
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {currentOrders.length > 0 ? currentOrders.map(order => (
-                <tr key={order.id} className="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+              {currentOrders.length > 0 ? currentOrders.map((order, idx) => (
+                <tr key={`${order.id}-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
                   <td className="px-2 py-2 text-center border-r border-slate-200 dark:border-slate-700">
                     <input 
                       type="checkbox"
@@ -4614,10 +4855,15 @@ function Orders({ token, onOrderAdded, initialFilters, onBulkUpload }: { token: 
                     value={formData.my_agent_id || ''}
                     options={myAgents.map(a => ({value: a.id, label: a.name}))} 
                     onChange={val => {
-                      setFormData(prev => ({ 
-                        ...prev, 
-                        my_agent_id: val
-                      }));
+                      const rate = getActiveRate(formData.date || lastOrderDate, formData.type, val);
+                      setFormData(prev => {
+                         const newRate = rate ? rate.toString() : prev.rate;
+                         if (prev.amount_bdt && newRate) {
+                             const myr = parseFloat(prev.amount_bdt) / parseFloat(newRate);
+                             return { ...prev, my_agent_id: val, rate: newRate, amount_myr: myr.toFixed(2) };
+                         }
+                         return { ...prev, my_agent_id: val, rate: newRate };
+                      });
                     }}
                     required
                   />
@@ -4634,9 +4880,37 @@ function Orders({ token, onOrderAdded, initialFilters, onBulkUpload }: { token: 
                     label="Transfer Type" 
                     value={formData.type || ''}
                     options={[{value: 'bkash', label: 'Bkash'}, {value: 'bank', label: 'Bank Transfer'}, {value: 'nagad', label: 'Nagad'}]} 
-                    onChange={e => setFormData(prev => ({ ...prev, type: e.target.value as any, charge: e.target.value === 'bank' ? prev.charge : '0' }))}
+                    onChange={e => {
+                      const newType = e.target.value as any;
+                      const rate = getActiveRate(formData.date || lastOrderDate, newType, formData.my_agent_id);
+                      
+                      setFormData(prev => {
+                         const newRate = rate ? rate.toString() : prev.rate;
+                         if (prev.amount_bdt && newRate) {
+                             const myr = parseFloat(prev.amount_bdt) / parseFloat(newRate);
+                             return { ...prev, type: newType, rate: newRate, amount_myr: myr.toFixed(2), charge: newType === 'bank' ? prev.charge : '0' };
+                         }
+                         return { ...prev, type: newType, rate: newRate, charge: newType === 'bank' ? prev.charge : '0' };
+                      });
+                    }}
                   />
-                  <Input label="Date" type="date" value={formData.date || ''} onChange={e => setFormData(prev => ({ ...prev, date: e.target.value }))} />
+                  <Input 
+                    label="Date" 
+                    type="date" 
+                    value={formData.date || ''} 
+                    onChange={e => {
+                      const newDate = e.target.value;
+                      const rate = getActiveRate(newDate, formData.type, formData.my_agent_id);
+                      setFormData(prev => {
+                        const newRate = rate ? rate.toString() : prev.rate;
+                        if (prev.amount_bdt && newRate) {
+                          const myr = parseFloat(prev.amount_bdt) / parseFloat(newRate);
+                          return { ...prev, date: newDate, rate: newRate, amount_myr: myr.toFixed(2) };
+                        }
+                        return { ...prev, date: newDate, rate: newRate };
+                      });
+                    }} 
+                  />
                 </div>
                 <div className="w-full">
                   <Input 
@@ -4718,6 +4992,7 @@ function BDAgents({ token, onAgentAdded, onBulkUpload }: { token: string; onAgen
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
+
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -4849,8 +5124,8 @@ function BDAgents({ token, onAgentAdded, onBulkUpload }: { token: string; onAgen
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {currentAgents.map(agent => (
-                <tr key={agent.id} className="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+              {currentAgents.map((agent, idx) => (
+                <tr key={`${agent.id}-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
                   <td className="px-2 py-2 text-xs font-medium text-slate-900 dark:text-white border-r border-slate-200 dark:border-slate-700">{agent.name}</td>
                   <td className="px-2 py-2 text-xs font-bold text-slate-900 dark:text-white border-r border-slate-200 dark:border-slate-700">
                     {(agent.total_payments_bdt - agent.total_orders_bdt + (Number(agent.initial_balance) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} BDT
@@ -4872,6 +5147,7 @@ function BDAgents({ token, onAgentAdded, onBulkUpload }: { token: string; onAgen
               <tfoot className="bg-slate-50 dark:bg-slate-800 font-bold border-t-2 border-slate-200 dark:border-slate-700 sticky bottom-0 z-10">
                 <tr>
                   <td className="px-2 py-2 text-xs text-slate-900 dark:text-white text-right border-r border-slate-200 dark:border-slate-700">TOTAL:</td>
+                  <td className="px-2 py-2 border-r border-slate-200 dark:border-slate-700"></td>
                   <td className="px-2 py-2 text-xs text-slate-900 dark:text-white border-r border-slate-200 dark:border-slate-700">
                     {filteredAgents.reduce((sum, agent) => sum + (agent.total_payments_bdt - agent.total_orders_bdt + (Number(agent.initial_balance) || 0)), 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} BDT
                   </td>
@@ -4945,6 +5221,7 @@ function BDAgents({ token, onAgentAdded, onBulkUpload }: { token: string; onAgen
             <Card className="p-6">
               <form onSubmit={handleSubmit} className="space-y-4">
                 <Input name="name" label="Agent Name" placeholder="e.g. BD Express" defaultValue={editingAgent?.name} required />
+
                 <Input name="initial_balance" label="Initial Balance (BDT)" type="number" step="0.01" placeholder="0.00" defaultValue={editingAgent?.initial_balance} />
                 <Input name="initial_balance_date" label="Initial Balance Date" type="date" defaultValue={editingAgent?.initial_balance_date || new Date().toISOString().split('T')[0]} />
                 <div className="flex gap-2 pt-4 border-t border-slate-100">
@@ -5192,11 +5469,11 @@ function ConversionTab({ token, onConversionAdded }: { token: string; onConversi
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {currentConversions.map(conv => {
+              {currentConversions.map((conv, idx) => {
                 // Calculate Final Rate for display
                 const displayRate = conv.commission_enabled ? conv.rate * 1.025 : conv.rate;
                 return (
-                  <tr key={conv.id} className="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                  <tr key={`${conv.id}-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
                     <td className="px-2 py-2 text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap border-r border-slate-200 dark:border-slate-700">{formatDate(conv.date)}</td>
                     <td className="px-2 py-2 text-xs font-bold text-slate-900 dark:text-white border-r border-slate-200 dark:border-slate-700">{formatCurrency(conv.amount_myr)}</td>
                     <td className="px-2 py-2 text-xs text-slate-600 dark:text-slate-400 border-r border-slate-200 dark:border-slate-700">{displayRate.toFixed(2)}</td>
@@ -5488,8 +5765,8 @@ function Expenses({ token, onExpenseAdded }: { token: string; onExpenseAdded?: (
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {currentExpenses.map(exp => (
-                <tr key={exp.id} className="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+              {currentExpenses.map((exp, idx) => (
+                <tr key={`${exp.id}-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
                   <td className="px-2 py-2 text-xs text-slate-600 dark:text-slate-400 whitespace-nowrap border-r border-slate-200 dark:border-slate-700">{formatDate(exp.date)}</td>
                   <td className="px-2 py-2 text-xs font-medium text-slate-900 dark:text-white border-r border-slate-200 dark:border-slate-700">{exp.category}</td>
                   <td className="px-2 py-2 text-xs font-bold text-red-600 dark:text-red-400 border-r border-slate-200 dark:border-slate-700">
@@ -5619,6 +5896,9 @@ function Expenses({ token, onExpenseAdded }: { token: string; onExpenseAdded?: (
     </div>
   );
 }
+
+// --- WhatsApp MMT Group Integration Component ---
+
 
 // --- Loan Component ---
 
@@ -5955,12 +6235,12 @@ function LoanPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {loanTxs.map((t) => {
+                {loanTxs.map((t, idx) => {
                   const dr = parseFloat(t.drAmount) || 0;
                   const cr = parseFloat(t.crAmount) || 0;
                   runningBalance += (dr - cr);
                   return (
-                    <tr key={t.id} className="border-b border-slate-200 dark:border-slate-700 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                    <tr key={`${t.id}-${idx}`} className="border-b border-slate-200 dark:border-slate-700 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
                       <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-500">{t.date}</td>
                       <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white">{t.description || '-'}</td>
                       <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-900 dark:text-white text-right">{t.drAmount || '-'}</td>
@@ -6046,11 +6326,11 @@ function LoanPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {loans.map(loan => {
+              {loans.map((loan, idx) => {
                 const loanTxs = transactions.filter(t => t.loanId === loan.id);
                 const balance = loanTxs.reduce((sum, t) => sum + (parseFloat(t.drAmount) || 0) - (parseFloat(t.crAmount) || 0), 0);
                 return (
-                  <tr key={loan.id} className="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                  <tr key={`${loan.id}-${idx}`} className="hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
                     <td className="px-4 py-3 text-sm font-medium text-slate-900 dark:text-white border-r border-slate-200 dark:border-slate-700">{loan.name}</td>
                     <td className={cn("px-4 py-3 text-sm font-bold text-right border-r border-slate-200 dark:border-slate-700", balance >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
                       {balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -6279,31 +6559,39 @@ function CalculationPage() {
     }
   };
 
-  let runningBalance = 0;
   const calculatedRows = rows.map((r, index) => {
     const bdTk = parseFloat(r.bdTk) || 0;
     const rate = parseFloat(r.rate) || 0;
     const payment = parseFloat(r.payment) || 0;
     
-    // Last Due logic: User enters it manually to override, or else inherits from runningBalance
+    // User enters Last Due manually
     const parsedLastDue = parseFloat(r.lastDue);
-    const lastDue = !isNaN(parsedLastDue) ? parsedLastDue : (index === 0 ? 0 : runningBalance);
+    const lastDue = !isNaN(parsedLastDue) && String(r.lastDue).trim() !== '' ? parsedLastDue : 0;
     
     // BD TK / Rate = RM
     const rm = rate > 0 ? (bdTk / rate) : 0;
     
     // RM + Last Due - Payment = Balance
     const balance = rm + lastDue - payment;
-    runningBalance = balance;
     
     return {
       ...r,
       sl: index + 1,
-      lastDue,
+      lastDue: r.lastDue !== undefined && r.lastDue !== null && String(r.lastDue).trim() !== '' ? parsedLastDue : '',
       rm,
       balance
     };
   });
+
+  const totals = calculatedRows.reduce((acc, r) => ({
+      bdTk: acc.bdTk + (parseFloat(r.bdTk) || 0),
+      payment: acc.payment + (parseFloat(r.payment) || 0),
+      lastDue: acc.lastDue + (parseFloat(String(r.lastDue)) || 0),
+      rm: acc.rm + r.rm,
+      balance: acc.balance + r.balance,
+  }), { bdTk: 0, payment: 0, lastDue: 0, rm: 0, balance: 0 });
+  
+  const lastBalance = calculatedRows.length > 0 ? calculatedRows[calculatedRows.length - 1].balance : 0;
 
   const exportToPDF = () => {
     const doc = new jsPDF();
@@ -6316,20 +6604,32 @@ function CalculationPage() {
     
     const tableData = calculatedRows.map(r => [
       r.sl,
-      r.bdTk || '-',
+      r.bdTk && !isNaN(parseFloat(String(r.bdTk))) ? Number(r.bdTk).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-',
       r.rate && !isNaN(parseFloat(String(r.rate))) ? parseFloat(String(r.rate)).toFixed(2) : '-',
       r.rm.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-      r.payment || '-',
-      r.lastDue || '-',
+      r.payment && !isNaN(parseFloat(String(r.payment))) ? Number(r.payment).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-',
+      r.lastDue !== '' ? Number(r.lastDue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-',
       r.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     ]);
+
+    const totalRow = [
+      'Total',
+      totals.bdTk.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      '-',
+      totals.rm.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      totals.payment.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      totals.lastDue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      totals.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    ];
 
     autoTable(doc, {
       startY: 40,
       head: [['SL', 'BD TK', 'Rate', 'RM', 'Payment', 'Last Due', 'Balance']],
       body: tableData,
+      foot: [totalRow],
       theme: 'striped',
-      headStyles: { fillColor: [15, 23, 42] }
+      headStyles: { fillColor: [15, 23, 42] },
+      footStyles: { fillColor: [248, 250, 252], textColor: [15, 23, 42], fontStyle: 'bold' }
     });
 
     doc.save('calculation_report.pdf');
@@ -6338,12 +6638,12 @@ function CalculationPage() {
   const exportToExcel = () => {
     const tableData = calculatedRows.map(r => ({
       'SL': r.sl,
-      'BD TK': r.bdTk,
+      'BD TK': r.bdTk && !isNaN(parseFloat(String(r.bdTk))) ? Number(r.bdTk).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '',
       'Rate': r.rate && !isNaN(parseFloat(String(r.rate))) ? parseFloat(String(r.rate)).toFixed(2) : '',
-      'RM': r.rm.toFixed(2),
-      'Payment': r.payment,
-      'Last Due': r.lastDue,
-      'Balance': r.balance.toFixed(2)
+      'RM': r.rm.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      'Payment': r.payment && !isNaN(parseFloat(String(r.payment))) ? Number(r.payment).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '',
+      'Last Due': r.lastDue !== '' ? Number(r.lastDue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '',
+      'Balance': r.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     }));
 
     const ws = XLSX.utils.json_to_sheet(tableData);
@@ -6354,7 +6654,7 @@ function CalculationPage() {
 
   const exportToJPG = async () => {
     setIsExport(true);
-    await new Promise(r => setTimeout(r, 100));
+    await new Promise(r => setTimeout(r, 450));
 
     const element = document.getElementById('calculation-content');
     if (element) {
@@ -6415,21 +6715,23 @@ function CalculationPage() {
             <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
               <tr>
                 <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700 w-12 text-center">SL</th>
-                <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700">BD TK</th>
+                <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700 text-right">BD TK</th>
                 <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700 w-24">Rate</th>
                 <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700 text-right">RM</th>
-                <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700">Payment</th>
-                <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700">Last Due</th>
+                <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700 text-right">Payment</th>
+                <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700 text-right">Last Due</th>
                 <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-r border-slate-200 dark:border-slate-700 text-right">Balance</th>
                 {!isExport && <th className="px-3 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider w-12 text-center">Actions</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {calculatedRows.map((r) => (
-                <tr key={r.id} className="border-b border-slate-200 dark:border-slate-700 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+              {calculatedRows.map((r, idx) => (
+                <tr key={`${r.id}-${idx}`} className="border-b border-slate-200 dark:border-slate-700 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
                   <td className="px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-500 text-center">{r.sl}</td>
                   <td className="px-1 py-1 border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 relative">
-                    <div className="text-xs px-2 py-1 text-slate-900 dark:text-white">{r.bdTk || '-'}</div>
+                    <div className="text-xs px-2 py-1 text-slate-900 dark:text-white text-right">
+                      {r.bdTk && !isNaN(parseFloat(String(r.bdTk))) ? Number(r.bdTk).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
+                    </div>
                   </td>
                   <td className="px-1 py-1 border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 relative">
                     <div className="text-xs px-2 py-1 text-slate-900 dark:text-white">
@@ -6440,10 +6742,12 @@ function CalculationPage() {
                     {r.rm.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   <td className="px-1 py-1 border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 relative">
-                    <div className="text-xs px-2 py-1 text-slate-900 dark:text-white">{r.payment || '-'}</div>
+                    <div className="text-xs px-2 py-1 text-slate-900 dark:text-white text-right">
+                      {r.payment && !isNaN(parseFloat(String(r.payment))) ? Number(r.payment).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
+                    </div>
                   </td>
                   <td className="px-1 py-1 border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 relative">
-                    <div className="text-xs px-2 py-1 text-slate-900 dark:text-white text-right font-medium">{r.lastDue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '-'}</div>
+                    <div className="text-xs px-2 py-1 text-slate-900 dark:text-white text-right font-medium">{r.lastDue !== '' ? Number(r.lastDue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}</div>
                   </td>
                   <td className={cn("px-3 py-2 border-r border-slate-200 dark:border-slate-700 text-xs font-bold text-right bg-slate-50/50 dark:bg-slate-800/50", r.balance >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
                     {r.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -6452,7 +6756,7 @@ function CalculationPage() {
                     <td className="px-2 py-2 text-center">
                       <div className="flex justify-center gap-1">
                         <button onClick={() => handleEditRowClick(r)} className="p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-indigo-600 rounded-md transition-colors flex justify-center">
-                          <Edit size={14} />
+                           <Edit size={14} />
                         </button>
                         <button onClick={() => removeRow(r.id)} disabled={rows.length === 1} className="p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-red-600 rounded-md transition-colors disabled:opacity-30 flex justify-center">
                           <Trash2 size={14} />
@@ -6463,6 +6767,18 @@ function CalculationPage() {
                 </tr>
               ))}
             </tbody>
+            <tfoot className="font-bold">
+              <tr className="bg-slate-100 dark:bg-slate-800">
+                <td className="px-3 py-2 text-xs text-slate-900 dark:text-white text-right bg-slate-100 dark:bg-slate-800 border-t border-b border-r border-slate-200 dark:border-slate-700" colSpan={1}>Total</td>
+                <td className="px-3 py-2 text-xs text-slate-900 dark:text-white text-right bg-slate-100 dark:bg-slate-800 border-t border-b border-r border-slate-200 dark:border-slate-700">{totals.bdTk.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                <td className="px-3 py-2 text-xs text-slate-900 dark:text-white text-center bg-slate-100 dark:bg-slate-800 border-t border-b border-r border-slate-200 dark:border-slate-700">-</td>
+                <td className="px-3 py-2 text-xs text-slate-900 dark:text-white text-right bg-slate-100 dark:bg-slate-800 border-t border-b border-r border-slate-200 dark:border-slate-700">{totals.rm.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                <td className="px-3 py-2 text-xs text-slate-900 dark:text-white text-right bg-slate-100 dark:bg-slate-800 border-t border-b border-r border-slate-200 dark:border-slate-700">{totals.payment.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                <td className="px-3 py-2 text-xs text-slate-900 dark:text-white text-right bg-slate-100 dark:bg-slate-800 border-t border-b border-r border-slate-200 dark:border-slate-700">{totals.lastDue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                <td className="px-3 py-2 text-xs text-slate-900 dark:text-white text-right bg-slate-100 dark:bg-slate-800 border-t border-b border-slate-200 dark:border-slate-700">{totals.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                {!isExport && <td className="bg-slate-100 dark:bg-slate-800 border-t border-b border-slate-200 dark:border-slate-700" />}
+              </tr>
+            </tfoot>
           </table>
         </div>
         {!isExport && (
@@ -6503,8 +6819,8 @@ function CalculationPage() {
 function Reports({ token, stats, initialFilters }: { token: string; stats: any; initialFilters?: any }) {
   const { myAgents, bdAgents } = useAppStore();
   const [reportType, setReportType] = useState('summary');
-  const [filterMYAgent, setFilterMYAgent] = useState('');
-  const [filterBDAgent, setFilterBDAgent] = useState('');
+  const [filterMYAgent, setFilterMYAgent] = useState<string[]>(['']);
+  const [filterBDAgent, setFilterBDAgent] = useState<string[]>(['']);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [reportData, setReportData] = useState<any>(null);
@@ -6516,12 +6832,12 @@ function Reports({ token, stats, initialFilters }: { token: string; stats: any; 
   useEffect(() => {
     if (initialFilters) {
       setReportType(initialFilters.type || 'summary');
-      setFilterMYAgent(initialFilters.my_agent_id || '');
-      setFilterBDAgent(initialFilters.bd_agent_id || '');
+      setFilterMYAgent(initialFilters.my_agent_id ? [initialFilters.my_agent_id] : ['']);
+      setFilterBDAgent(initialFilters.bd_agent_id ? [initialFilters.bd_agent_id] : ['']);
     } else {
       setReportType('summary');
-      setFilterMYAgent('');
-      setFilterBDAgent('');
+      setFilterMYAgent(['']);
+      setFilterBDAgent(['']);
     }
   }, [initialFilters]);
 
@@ -6536,8 +6852,8 @@ function Reports({ token, stats, initialFilters }: { token: string; stats: any; 
     try {
       const params = {
         type: reportType,
-        my_agent_id: filterMYAgent === 'all' ? '' : filterMYAgent,
-        bd_agent_id: filterBDAgent === 'all' ? '' : filterBDAgent,
+        my_agent_id: filterMYAgent,
+        bd_agent_id: filterBDAgent,
         start_date: startDate,
         end_date: endDate
       };
@@ -6554,20 +6870,32 @@ function Reports({ token, stats, initialFilters }: { token: string; stats: any; 
     if (!reportData) return;
     const doc = new jsPDF();
     
-    const agentName = filterMYAgent ? myAgents.find(a => a.id.toString() === filterMYAgent.toString())?.name : 
-                    filterBDAgent ? bdAgents.find(a => a.id.toString() === filterBDAgent.toString())?.name : 
-                    (filterMYAgent === '' && filterBDAgent === '') ? 'All Agents' : 
-                    (filterMYAgent === '' ? 'All MY Agents' : 'All BD Agents');
+    const formatAgentNames = (ids: string[], agentsList: any[]) => {
+      if (ids.includes('all') || (ids.length === 1 && ids[0] === '')) return 'All';
+      const selected = agentsList.filter(a => ids.includes(a.id.toString()));
+      return selected.map(a => a.name).join(', ');
+    };
+    
+    let agentName = "All Agents";
+    const isMyAll = filterMYAgent.includes('all') || (filterMYAgent.length === 1 && filterMYAgent[0] === '');
+    const isBdAll = filterBDAgent.includes('all') || (filterBDAgent.length === 1 && filterBDAgent[0] === '');
+    
+    if (!isMyAll && !isBdAll) {
+       agentName = `${formatAgentNames(filterMYAgent, myAgents)} / ${formatAgentNames(filterBDAgent, bdAgents)}`;
+    } else if (!isMyAll) {
+       agentName = formatAgentNames(filterMYAgent, myAgents);
+    } else if (!isBdAll) {
+       agentName = formatAgentNames(filterBDAgent, bdAgents);
+    }
 
     doc.setFontSize(20);
     doc.setTextColor(15, 23, 42);
-    doc.text(`Juel Money Transfer Apps Report: ${reportType.replace('_', ' ').toUpperCase()}`, 14, 20);
+    doc.text(`${reportType.replace('_', ' ').toUpperCase()} REPORT - ${agentName}`, 14, 20);
     
     doc.setFontSize(10);
     doc.setTextColor(100, 116, 139);
-    doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 28);
-    doc.text(`Sender Name: ${agentName}`, 14, 34);
-    doc.text(`Period: ${startDate ? formatDate(startDate) : 'Beginning'} — ${endDate ? formatDate(endDate) : 'Present'}`, 14, 40);
+    doc.text(`Juel Money Transfer Apps (${startDate ? formatDate(startDate) : 'Beginning'} — ${endDate ? formatDate(endDate) : 'Present'})`, 14, 28);
+    doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 34);
     
     if (reportType === 'summary') {
       if (!reportData.summary) return;
@@ -6624,16 +6952,26 @@ function Reports({ token, stats, initialFilters }: { token: string; stats: any; 
         foot: [columnTotals],
         theme: 'striped',
         headStyles: { fillColor: [15, 23, 42] },
-        footStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' },
+        footStyles: { fillColor: [248, 250, 252], textColor: [15, 23, 42], fontStyle: 'bold' },
         didParseCell: (data) => {
           if (data.section === 'foot') {
-            data.cell.styles.fillColor = [15, 23, 42];
-            data.cell.styles.textColor = [255, 255, 255];
+            data.cell.styles.fillColor = [248, 250, 252];
+            data.cell.styles.textColor = [15, 23, 42];
             data.cell.styles.fontStyle = 'bold';
           }
         }
       });
     }
+    
+    // Add Report Stamp
+    const pageCount = doc.getNumberOfPages();
+    for(let i = 1; i <= pageCount; i++) {
+       doc.setPage(i);
+       doc.setFontSize(8);
+       doc.setTextColor(150);
+       doc.text(`Generated by Juel Money Transfer Apps on ${new Date().toLocaleString()}`, 14, doc.internal.pageSize.height - 10);
+    }
+    
     doc.save(`remitflow_${reportType}_report.pdf`);
   };
 
@@ -6911,36 +7249,18 @@ function Reports({ token, stats, initialFilters }: { token: string; stats: any; 
 
     return (
       <div id={isExport ? "report-content-export" : "report-content"} className={cn("space-y-4 bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800", isExport && "w-fit min-w-full")}>
-        <div className="flex flex-col gap-1 border-b border-slate-100 dark:border-slate-800 pb-4 mb-4">
-          <div className="flex justify-between items-start">
-            <div>
-              <h1 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
-                {reportType.replace('_', ' ').toUpperCase()} REPORT
-              </h1>
-              <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">
-                Juel Money Transfer Apps
-              </p>
-              <p className="text-sm text-slate-500 dark:text-slate-400 font-medium">
-                Financial Management System
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Generated On</p>
-              <p className="text-sm font-mono text-slate-900 dark:text-white">{new Date().toLocaleString()}</p>
-            </div>
+        <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-800 pb-4 mb-4">
+          <div>
+            <h1 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
+              {reportType.replace('_', ' ').toUpperCase()} REPORT - {agentName}
+            </h1>
+            <p className="text-sm font-medium text-slate-500 uppercase tracking-wider mt-1">
+              Juel Money Transfer Apps ({startDate ? formatDate(startDate) : 'Beginning'} - {endDate ? formatDate(endDate) : 'Present'})
+            </p>
           </div>
-          
-          <div className="grid grid-cols-2 gap-8 mt-6">
-            <div className="space-y-1">
-              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Sender Name</p>
-              <p className="text-sm font-bold text-slate-900 dark:text-white">{agentName}</p>
-            </div>
-            <div className="space-y-1 text-right">
-              <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Period</p>
-              <p className="text-sm font-bold text-slate-900 dark:text-white whitespace-nowrap">
-                {startDate ? formatDate(startDate) : 'Beginning'} — {endDate ? formatDate(endDate) : 'Present'}
-              </p>
-            </div>
+          <div className="text-right">
+            <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Generated On</p>
+            <p className="text-sm font-mono text-slate-900 dark:text-white">{new Date().toLocaleString()}</p>
           </div>
         </div>
 
@@ -6986,10 +7306,13 @@ function Reports({ token, stats, initialFilters }: { token: string; stats: any; 
                 )}
               </tbody>
               {data.length > 0 && (
-                <tfoot className="bg-slate-900 dark:bg-slate-950 text-white font-bold">
+                <tfoot className="bg-slate-50 dark:bg-slate-800 font-bold border-t-2 border-slate-200 dark:border-slate-700">
                   <tr>
                     {columnTotals.map((total: any, i: number) => (
-                      <td key={i} className="px-3 py-3 text-xs border-r border-slate-800 last:border-r-0">
+                      <td key={i} className={cn(
+                        "px-3 py-3 text-xs border-r border-slate-200 dark:border-slate-700 last:border-r-0",
+                         i === 0 ? "text-slate-900 dark:text-white text-right tracking-wider uppercase font-bold" : "text-slate-900 dark:text-white"
+                      )}>
                         {typeof total === 'number' ? total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : total}
                       </td>
                     ))}
@@ -7090,15 +7413,15 @@ function Reports({ token, stats, initialFilters }: { token: string; stats: any; 
               {value: 'ledger', label: 'Agent Ledger'}
             ]} 
           />
-          <SearchableSelect 
+          <MultiSearchableSelect 
             label="MY Agent" 
-            value={filterMYAgent}
+            values={filterMYAgent}
             onChange={val => setFilterMYAgent(val)}
             options={[{value: '', label: 'Blank'}, {value: 'all', label: 'All MY Agents'}, ...myAgents.map(a => ({value: a.id, label: a.name}))]} 
           />
-          <SearchableSelect 
+          <MultiSearchableSelect 
             label="BD Agent" 
-            value={filterBDAgent}
+            values={filterBDAgent}
             onChange={val => setFilterBDAgent(val)}
             options={[{value: '', label: 'Blank'}, {value: 'all', label: 'All BD Agents'}, ...bdAgents.map(a => ({value: a.id, label: a.name}))]} 
           />

@@ -67,14 +67,17 @@ interface AppState {
   deposits: Deposit[];
   loans: LoanEntity[];
   loanTransactions: LoanTransaction[];
-  defaultRate: number;
+  defaultMobileRate: number;
+  defaultBankRate: number;
   rateHistory: RateHistory[];
   dateFormat: string;
   stats: any;
+  whatsappDrafts: any[];
   
   // Actions
   refresh: () => (() => void);
-  setDefaultRate: (rate: number, date?: string) => void;
+  setDefaultRates: (mobileRate: number, bankRate: number, date?: string) => void;
+  updateRateHistoryItem: (id: number, mobileRate: number, bankRate: number) => Promise<void>;
   setDateFormat: (format: string) => void;
 }
 
@@ -94,7 +97,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   deposits: load('rf_deposits'),
   loans: [],
   loanTransactions: [],
-  defaultRate: Number(localStorage.getItem('rf_default_rate') || 0),
+  whatsappDrafts: [],
+  defaultMobileRate: Number(localStorage.getItem('rf_default_mobile_rate') || 0),
+  defaultBankRate: Number(localStorage.getItem('rf_default_bank_rate') || 0),
   rateHistory: load('rf_rate_history'),
   dateFormat: localStorage.getItem('rf_date_format') || 'DD-MM-YYYY',
   stats: null,
@@ -351,11 +356,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     unsubscribers.push(setupListener('rate_history', 'rateHistory'));
     unsubscribers.push(setupListener('loans', 'loans'));
     unsubscribers.push(setupListener('loan_transactions', 'loanTransactions'));
+    unsubscribers.push(setupListener('whatsapp_drafts', 'whatsappDrafts'));
 
     // Listen to global settings
     unsubscribers.push(onSnapshot(doc(db, 'settings', 'global'), (snapshot) => {
       if (snapshot.exists()) {
-        set({ defaultRate: snapshot.data().defaultRate });
+        const data = snapshot.data();
+        set({ defaultMobileRate: data.defaultMobileRate, defaultBankRate: data.defaultBankRate });
       }
     }));
 
@@ -372,19 +379,32 @@ export const useAppStore = create<AppState>((set, get) => ({
     };
   },
 
-  setDefaultRate: async (rate: number, date?: string) => {
+  setDefaultRates: async (mobileRate: number, bankRate: number, date?: string) => {
     const targetDate = date || new Date().toISOString().split('T')[0];
     try {
-      await setDoc(doc(db, 'settings', 'global'), { defaultRate: rate }, { merge: true });
+      await setDoc(doc(db, 'settings', 'global'), { defaultMobileRate: mobileRate, defaultBankRate: bankRate }, { merge: true });
       
       const historyCol = collection(db, 'rate_history');
       const q = query(historyCol, where('date', '==', targetDate));
       const snap = await getDocs(q);
       
       if (!snap.empty) {
-        await updateDoc(doc(db, 'rate_history', snap.docs[0].id), { rate });
+        await updateDoc(doc(db, 'rate_history', snap.docs[0].id), { mobileRate, bankRate });
       } else {
-        await addDoc(historyCol, { id: Date.now(), rate, date: targetDate });
+        await addDoc(historyCol, { id: Date.now(), mobileRate, bankRate, date: targetDate });
+      }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'rate_history');
+    }
+  },
+
+  updateRateHistoryItem: async (id: number, mobileRate: number, bankRate: number) => {
+    try {
+      const q = query(collection(db, 'rate_history'), where('id', '==', id));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        await updateDoc(doc(db, 'rate_history', snap.docs[0].id), { mobileRate, bankRate });
+        useAppStore.getState().refresh();
       }
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'rate_history');
@@ -405,15 +425,14 @@ export const store = {
   
   getMYAgents: () => useAppStore.getState().myAgents,
 
-  addMYAgent: async (name: string, initial_balance: number, initial_balance_date?: string) => {
+  addMYAgent: async (name: string, initial_balance: number, initial_balance_date?: string, default_mobile_rate: number = 0, default_bank_rate: number = 0) => {
     const newAgent = { 
       id: Date.now(), 
       name, 
       initial_balance: Number(initial_balance) || 0, 
       initial_balance_date: initial_balance_date || new Date().toISOString().split('T')[0],
-      phone: '', 
-      default_bkash_rate: 0, 
-      default_bank_rate: 0 
+      default_mobile_rate: Number(default_mobile_rate) || 0,
+      default_bank_rate: Number(default_bank_rate) || 0
     };
     try {
       await addDoc(collection(db, 'my_agents'), newAgent);
@@ -449,13 +468,13 @@ export const store = {
 
   getBDAgents: () => useAppStore.getState().bdAgents,
 
-  addBDAgent: async (name: string, initial_balance: number, initial_balance_date?: string) => {
+  addBDAgent: async (name: string, initial_balance: number, initial_balance_date?: string, phone: string = '') => {
     const newAgent = { 
       id: Date.now(), 
       name, 
       initial_balance: Number(initial_balance) || 0, 
       initial_balance_date: initial_balance_date || new Date().toISOString().split('T')[0],
-      phone: '' 
+      phone: phone || '' 
     };
     try {
       await addDoc(collection(db, 'bd_agents'), newAgent);
@@ -516,7 +535,8 @@ export const store = {
       my_agent_id, 
       bd_agent_id,
       my_agent_name,
-      bd_agent_name
+      bd_agent_name,
+      paid_amount: 0
     };
 
     try {
@@ -730,15 +750,23 @@ export const store = {
       
       if (data.order_ids?.length > 0) {
         const { orders } = useAppStore.getState();
+        const paymentAmountPerOrder = Number(data.amount_myr) / data.order_ids.length;
         for (const orderId of data.order_ids) {
           const order = orders.find(o => o.id === orderId);
-          if (order && order.firebase_id) {
-            batch.update(doc(db, 'orders', order.firebase_id), { status: 'paid' });
-          } else {
-            const q = query(collection(db, 'orders'), where('id', '==', orderId));
-            const snap = await getDocs(q);
-            if (!snap.empty) {
-              batch.update(doc(db, 'orders', snap.docs[0].id), { status: 'paid' });
+          if (order) {
+            const currentPaidAmount = order.paid_amount || 0;
+            const newPaidAmount = currentPaidAmount + paymentAmountPerOrder;
+            const newRemainingBalance = order.amount_myr - newPaidAmount;
+            const newStatus = newPaidAmount >= order.amount_myr ? 'paid' : 'partial';
+            
+            if (order.firebase_id) {
+              batch.update(doc(db, 'orders', order.firebase_id), { status: newStatus, paid_amount: newPaidAmount, remaining_balance: newRemainingBalance });
+            } else {
+              const q = query(collection(db, 'orders'), where('id', '==', orderId));
+              const snap = await getDocs(q);
+              if (!snap.empty) {
+                batch.update(doc(db, 'orders', snap.docs[0].id), { status: newStatus, paid_amount: newPaidAmount, remaining_balance: newRemainingBalance });
+              }
             }
           }
         }
@@ -763,15 +791,22 @@ export const store = {
         
         if (payment.order_ids?.length > 0) {
           const { orders } = useAppStore.getState();
+          const paymentAmountPerOrder = Number(payment.amount_myr) / payment.order_ids.length;
           for (const orderId of payment.order_ids) {
             const order = orders.find(o => o.id === orderId);
-            if (order && order.firebase_id) {
-              batch.update(doc(db, 'orders', order.firebase_id), { status: 'unpaid' });
-            } else {
-              const oq = query(collection(db, 'orders'), where('id', '==', orderId));
-              const osnap = await getDocs(oq);
-              if (!osnap.empty) {
-                batch.update(doc(db, 'orders', osnap.docs[0].id), { status: 'unpaid' });
+            if (order) {
+              const newPaidAmount = (order.paid_amount || 0) - paymentAmountPerOrder;
+              const newRemainingBalance = order.amount_myr - newPaidAmount;
+              const newStatus = newPaidAmount <= 0 ? 'unpaid' : 'partial';
+              
+              if (order.firebase_id) {
+                batch.update(doc(db, 'orders', order.firebase_id), { status: newStatus, paid_amount: newPaidAmount, remaining_balance: newRemainingBalance });
+              } else {
+                const oq = query(collection(db, 'orders'), where('id', '==', orderId));
+                const osnap = await getDocs(oq);
+                if (!osnap.empty) {
+                  batch.update(doc(db, 'orders', osnap.docs[0].id), { status: newStatus, paid_amount: newPaidAmount, remaining_balance: newRemainingBalance });
+                }
               }
             }
           }
@@ -854,15 +889,23 @@ export const store = {
       
       if (data.order_ids?.length > 0) {
         const { orders } = useAppStore.getState();
+        const paymentAmountPerOrder = Number(data.amount_bdt) / data.order_ids.length;
         for (const orderId of data.order_ids) {
           const order = orders.find(o => o.id === orderId);
-          if (order && order.firebase_id) {
-            batch.update(doc(db, 'orders', order.firebase_id), { status: 'paid' });
-          } else {
-            const q = query(collection(db, 'orders'), where('id', '==', orderId));
-            const snap = await getDocs(q);
-            if (!snap.empty) {
-              batch.update(doc(db, 'orders', snap.docs[0].id), { status: 'paid' });
+          if (order) {
+            const currentPaidAmount = order.paid_amount || 0;
+            const newPaidAmount = currentPaidAmount + paymentAmountPerOrder;
+            const newRemainingBalance = order.amount_bdt - newPaidAmount;
+            const newStatus = newPaidAmount >= order.amount_bdt ? 'paid' : 'partial';
+            
+            if (order.firebase_id) {
+              batch.update(doc(db, 'orders', order.firebase_id), { status: newStatus, paid_amount: newPaidAmount, remaining_balance: newRemainingBalance });
+            } else {
+              const q = query(collection(db, 'orders'), where('id', '==', orderId));
+              const snap = await getDocs(q);
+              if (!snap.empty) {
+                batch.update(doc(db, 'orders', snap.docs[0].id), { status: newStatus, paid_amount: newPaidAmount, remaining_balance: newRemainingBalance });
+              }
             }
           }
         }
@@ -887,15 +930,22 @@ export const store = {
         
         if (payment.order_ids?.length > 0) {
           const { orders } = useAppStore.getState();
+          const paymentAmountPerOrder = Number(payment.amount_bdt) / payment.order_ids.length;
           for (const orderId of payment.order_ids) {
             const order = orders.find(o => o.id === orderId);
-            if (order && order.firebase_id) {
-              batch.update(doc(db, 'orders', order.firebase_id), { status: 'unpaid' });
-            } else {
-              const oq = query(collection(db, 'orders'), where('id', '==', orderId));
-              const osnap = await getDocs(oq);
-              if (!osnap.empty) {
-                batch.update(doc(db, 'orders', osnap.docs[0].id), { status: 'unpaid' });
+            if (order) {
+              const newPaidAmount = (order.paid_amount || 0) - paymentAmountPerOrder;
+              const newRemainingBalance = order.amount_bdt - newPaidAmount;
+              const newStatus = newPaidAmount <= 0 ? 'unpaid' : 'partial';
+              
+              if (order.firebase_id) {
+                batch.update(doc(db, 'orders', order.firebase_id), { status: newStatus, paid_amount: newPaidAmount, remaining_balance: newRemainingBalance });
+              } else {
+                const oq = query(collection(db, 'orders'), where('id', '==', orderId));
+                const osnap = await getDocs(oq);
+                if (!osnap.empty) {
+                  batch.update(doc(db, 'orders', osnap.docs[0].id), { status: newStatus, paid_amount: newPaidAmount, remaining_balance: newRemainingBalance });
+                }
               }
             }
           }
@@ -1198,15 +1248,25 @@ export const store = {
     }
   },
 
-  getCollectionReport: (start_date?: string, end_date?: string, my_agent_id?: string, bd_agent_id?: string) => {
+  getCollectionReport: (start_date?: string, end_date?: string, my_agent_id?: any, bd_agent_id?: any) => {
     const { myPayments, withdrawals } = useAppStore.getState();
+    
+    const requiresFilter = (req: any) => {
+       if (!req) return false;
+       if (typeof req === 'string') return req !== 'all' && req !== '';
+       return req.length > 0 && !req.includes('all') && !(req.length === 1 && req[0] === '');
+    };
+    
+    const matchId = (item_agent: number | undefined, req: any) => {
+       if (typeof req === 'string') return item_agent === Number(req);
+       return item_agent !== undefined && req.includes(String(item_agent));
+    };
     
     const filteredPayments = myPayments.filter(p => {
       if (start_date && p.date < start_date) return false;
       if (end_date && p.date > end_date) return false;
-      if (my_agent_id && p.my_agent_id !== Number(my_agent_id)) return false;
-      // BD agent filter doesn't directly apply to MY payments in this report
-      if (bd_agent_id) return false; 
+      if (requiresFilter(my_agent_id) && !matchId(p.my_agent_id, my_agent_id)) return false;
+      if (requiresFilter(bd_agent_id)) return false; 
       return true;
     });
 
@@ -1214,8 +1274,8 @@ export const store = {
       if (w.agent_type !== 'MY') return false;
       if (start_date && w.date < start_date) return false;
       if (end_date && w.date > end_date) return false;
-      if (my_agent_id && w.agent_id !== Number(my_agent_id)) return false;
-      if (bd_agent_id) return false;
+      if (requiresFilter(my_agent_id) && !matchId(w.agent_id, my_agent_id)) return false;
+      if (requiresFilter(bd_agent_id)) return false;
       return true;
     });
 
@@ -1242,14 +1302,14 @@ export const store = {
     if (start_date) {
       const pastPayments = myPayments.filter(p => {
         if (p.date >= start_date) return false;
-        if (my_agent_id && p.my_agent_id !== Number(my_agent_id)) return false;
-        if (bd_agent_id) return false;
+        if (requiresFilter(my_agent_id) && !matchId(p.my_agent_id, my_agent_id)) return false;
+        if (requiresFilter(bd_agent_id)) return false;
         return true;
       });
       const pastWithdrawals = withdrawals.filter(w => {
         if (w.agent_type !== 'MY' || w.date >= start_date) return false;
-        if (my_agent_id && w.agent_id !== Number(my_agent_id)) return false;
-        if (bd_agent_id) return false;
+        if (requiresFilter(my_agent_id) && !matchId(w.agent_id, my_agent_id)) return false;
+        if (requiresFilter(bd_agent_id)) return false;
         return true;
       });
       
@@ -1292,24 +1352,31 @@ export const store = {
       if (start_date && item.date < start_date) match = false;
       if (end_date && item.date > end_date) match = false;
       
-      if (my_agent_id) {
-        const agentId = Number(my_agent_id);
+      const requiresMyAgentFilter = (req: any) => {
+         if (!req) return false;
+         if (typeof req === 'string') return req !== 'all' && req !== '';
+         return req.length > 0 && !req.includes('all') && !(req.length === 1 && req[0] === '');
+      };
+      
+      const matchAgentId = (item_agent: number | undefined, req: any) => {
+         if (typeof req === 'string') return item_agent === Number(req);
+         return item_agent !== undefined && req.includes(String(item_agent));
+      };
+
+      if (requiresMyAgentFilter(my_agent_id)) {
         if ('my_agent_id' in item) {
-          if (item.my_agent_id !== agentId) match = false;
+          if (!matchAgentId(item.my_agent_id, my_agent_id)) match = false;
         } else {
           // If filtering by MY Agent, exclude items that are BD-only (like BD payments or conversions not linked to MY agents)
-          // Note: Conversions in this system don't have my_agent_id, they are global or linked to BD agents.
-          // Orders have both, so they are handled by the 'my_agent_id' in item check.
           if ('bd_agent_id' in item || isConversion) match = false;
         }
       }
       
-      if (bd_agent_id) {
-        const agentId = Number(bd_agent_id);
+      if (requiresMyAgentFilter(bd_agent_id)) {
         if (isConversion) {
-          if (item.pay_to_bd_agent_id !== agentId) match = false;
+          if (!matchAgentId(item.pay_to_bd_agent_id, bd_agent_id)) match = false;
         } else if ('bd_agent_id' in item) {
-          if (item.bd_agent_id !== agentId) match = false;
+          if (!matchAgentId(item.bd_agent_id, bd_agent_id)) match = false;
         } else {
           // If filtering by BD Agent, exclude items that are MY-only (like MY payments)
           if ('my_agent_id' in item) match = false;
@@ -1358,7 +1425,12 @@ export const store = {
       const totalGlobalCharges = globalConversions.reduce((sum, c) => sum + Number(c.bank_charges), 0);
       const totalGlobalExp = globalExpenses.reduce((sum, e) => sum + Number(e.amount_myr), 0);
       
-      const isAgentSelected = !!(my_agent_id || bd_agent_id);
+      const requiresMyAgentFilter = (req: any) => {
+         if (!req) return false;
+         if (typeof req === 'string') return req !== 'all' && req !== '';
+         return req.length > 0 && !req.includes('all') && !(req.length === 1 && req[0] === '');
+      };
+      const isAgentSelected = requiresMyAgentFilter(my_agent_id) || requiresMyAgentFilter(bd_agent_id);
       const proRateFactor = (isAgentSelected && totalGlobalBdtOrder > 0) ? (totalBdtOrder / totalGlobalBdtOrder) : 1;
       
       const totalCharges = totalGlobalCharges * proRateFactor;
@@ -1732,7 +1804,6 @@ export const store = {
       rateHistory: state.rateHistory,
       loans: state.loans,
       loanTransactions: state.loanTransactions,
-      defaultRate: state.defaultRate,
       backupDate: new Date().toISOString()
     };
   },
@@ -1770,7 +1841,6 @@ export const store = {
       if (data.deposits) save('rf_deposits', data.deposits);
       if (data.collectionMethods) save('rf_collection_methods', data.collectionMethods);
       if (data.rateHistory) save('rf_rate_history', data.rateHistory);
-      if (data.defaultRate) localStorage.setItem('rf_default_rate', data.defaultRate);
       
       useAppStore.getState().refresh();
       return { success: true };
@@ -1779,5 +1849,50 @@ export const store = {
     }
   },
 
-  getRateHistory: () => useAppStore.getState().rateHistory
+  getRateHistory: () => useAppStore.getState().rateHistory,
+
+  getWhatsAppDrafts: () => useAppStore.getState().whatsappDrafts,
+
+  addWhatsAppDraft: async (draft: any) => {
+    const newDraft = {
+      ...draft,
+      id: draft.id || Date.now().toString(),
+      status: draft.status || 'pending',
+      timestamp: draft.timestamp || new Date().toISOString()
+    };
+    try {
+      await addDoc(collection(db, 'whatsapp_drafts'), newDraft);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'whatsapp_drafts');
+    }
+    return newDraft;
+  },
+
+  updateWhatsAppDraft: async (firebaseId: string, status: 'pending' | 'approved' | 'dismissed', parsedData?: any) => {
+    try {
+      const draftRef = doc(db, 'whatsapp_drafts', firebaseId);
+      const updatePayload: any = { status };
+      if (parsedData) {
+        updatePayload.parsedAmountBdt = parsedData.parsedAmountBdt !== undefined ? Number(parsedData.parsedAmountBdt) : null;
+        updatePayload.parsedRate = parsedData.parsedRate !== undefined ? Number(parsedData.parsedRate) : null;
+        updatePayload.parsedAmountMyr = parsedData.parsedAmountMyr !== undefined ? Number(parsedData.parsedAmountMyr) : null;
+        updatePayload.parsedType = parsedData.parsedType || null;
+        updatePayload.parsedAgentName = parsedData.parsedAgentName || null;
+        updatePayload.parsedDirection = parsedData.parsedDirection || null;
+      }
+      await updateDoc(draftRef, updatePayload);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'whatsapp_drafts');
+    }
+  },
+
+  deleteWhatsAppDraft: async (firebaseId: string) => {
+    try {
+      await deleteDoc(doc(db, 'whatsapp_drafts', firebaseId));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, 'whatsapp_drafts');
+    }
+  },
+
+  updateRateHistoryItem: (id: number, mobileRate: number, bankRate: number) => useAppStore.getState().updateRateHistoryItem(id, mobileRate, bankRate)
 };

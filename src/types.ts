@@ -24,8 +24,7 @@ export interface User {
 export interface MYAgent {
   id: number;
   name: string;
-  phone?: string;
-  default_bkash_rate: number;
+  default_mobile_rate: number;
   default_bank_rate: number;
   total_orders_myr: number;
   total_payments_myr: number;
@@ -37,7 +36,6 @@ export interface MYAgent {
 export interface BDAgent {
   id: number;
   name: string;
-  phone?: string;
   total_orders_bdt: number;
   total_payments_bdt: number;
   initial_balance?: number;
@@ -58,6 +56,8 @@ export interface Order {
   charge?: number;
   date: string;
   status: string;
+  paid_amount?: number;
+  remaining_balance?: number;
   remark?: string;
   firebase_id?: string;
 }
@@ -112,7 +112,8 @@ export interface Expense {
 
 export interface RateHistory {
   id: number;
-  rate: number;
+  mobileRate: number;
+  bankRate: number;
   date: string;
 }
 

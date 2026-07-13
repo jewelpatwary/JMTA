@@ -228,6 +228,28 @@
       "properties": {
         "defaultRate": { "type": "number" }
       }
+    },
+    "WhatsAppDraft": {
+      "title": "WhatsApp Draft",
+      "description": "WhatsApp message draft before verification and posting",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "senderName": { "type": "string" },
+        "senderPhone": { "type": "string" },
+        "messageText": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "dismissed"] },
+        "timestamp": { "type": "string" },
+        "parsedAgentName": { "type": "string" },
+        "parsedAmountBdt": { "type": "number" },
+        "parsedRate": { "type": "number" },
+        "parsedAmountMyr": { "type": "number" },
+        "parsedType": { "type": "string" },
+        "parsedDirection": { "type": "string" },
+        "agentType": { "type": "string", "enum": ["MY", "BD"] },
+        "matchedAgentId": { "type": "number" }
+      },
+      "required": ["id", "senderName", "senderPhone", "messageText", "status", "timestamp"]
     }
   },
   "firestore": {
@@ -245,6 +267,7 @@
     "deposits": { "schema": "Deposit", "description": "Deposits collection" },
     "loans": { "schema": "Loan", "description": "Loans collection" },
     "loan_transactions": { "schema": "LoanTransaction", "description": "Loan transactions ledger collection" },
-    "settings": { "schema": "GlobalSettings", "description": "Settings collection" }
+    "settings": { "schema": "GlobalSettings", "description": "Settings collection" },
+    "whatsapp_drafts": { "schema": "WhatsAppDraft", "description": "WhatsApp transaction drafts" }
   }
 }
