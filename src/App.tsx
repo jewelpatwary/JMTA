@@ -49,7 +49,12 @@ import {
   Tooltip, 
   ResponsiveContainer,
   AreaChart,
-  Area
+  Area,
+  BarChart,
+  Bar,
+  Legend,
+  Cell,
+  ReferenceLine
 } from 'recharts';
 import { cn, formatCurrency, formatDate } from './lib/utils';
 import { db } from './lib/firebase';
@@ -4413,7 +4418,7 @@ function Orders({ token, onOrderAdded, initialFilters, onBulkUpload }: { token: 
     rate: '',
     amount_myr: '',
     charge: '0',
-    date: new Date().toISOString().split('T')[0],
+    date: localStorage.getItem('last_order_date') || new Date().toISOString().split('T')[0],
     remark: ''
   });
 
@@ -4482,6 +4487,7 @@ function Orders({ token, onOrderAdded, initialFilters, onBulkUpload }: { token: 
       remark: ''
     });
     localStorage.setItem('last_bd_agent_id', formData.bd_agent_id);
+    localStorage.setItem('last_order_date', formData.date || lastOrderDate);
     if (onOrderAdded) onOrderAdded();
   };
 
@@ -4643,17 +4649,19 @@ function Orders({ token, onOrderAdded, initialFilters, onBulkUpload }: { token: 
             <Download size={16} className="rotate-180" /> Bulk Upload
           </Button>
           <Button onClick={() => {
-            const initialRate = getActiveRate(lastOrderDate, 'bkash');
+            const savedDate = localStorage.getItem('last_order_date') || lastOrderDate;
+            const savedBDAgent = localStorage.getItem('last_bd_agent_id') || '';
+            const initialRate = getActiveRate(savedDate, 'bkash');
             setEditingOrder(null);
             setFormData({
               my_agent_id: '',
-              bd_agent_id: '',
+              bd_agent_id: savedBDAgent,
               type: 'bkash',
               amount_bdt: '',
               rate: initialRate > 0 ? initialRate.toString() : '',
               amount_myr: '',
               charge: '0',
-              date: lastOrderDate,
+              date: savedDate,
               remark: ''
             });
             setShowAdd(true);
@@ -4871,7 +4879,12 @@ function Orders({ token, onOrderAdded, initialFilters, onBulkUpload }: { token: 
                     label="Bangladesh Agent" 
                     value={formData.bd_agent_id || ''}
                     options={bdAgents.map(a => ({value: a.id, label: a.name}))} 
-                    onChange={val => setFormData(prev => ({ ...prev, bd_agent_id: val }))}
+                    onChange={val => {
+                      setFormData(prev => ({ ...prev, bd_agent_id: val }));
+                      if (!editingOrder) {
+                        localStorage.setItem('last_bd_agent_id', val);
+                      }
+                    }}
                     required
                   />
                 </div>
@@ -4900,6 +4913,9 @@ function Orders({ token, onOrderAdded, initialFilters, onBulkUpload }: { token: 
                     value={formData.date || ''} 
                     onChange={e => {
                       const newDate = e.target.value;
+                      if (!editingOrder) {
+                        localStorage.setItem('last_order_date', newDate);
+                      }
                       const rate = getActiveRate(newDate, formData.type, formData.my_agent_id);
                       setFormData(prev => {
                         const newRate = rate ? rate.toString() : prev.rate;
@@ -6829,6 +6845,107 @@ function Reports({ token, stats, initialFilters }: { token: string; stats: any; 
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 50;
 
+  const getMonthlyProfitData = () => {
+    const { orders, conversions, expenses } = useAppStore.getState();
+
+    // Collect all unique months from orders, conversions, expenses
+    const monthsSet = new Set<string>();
+    orders.forEach(o => { if (o.date) monthsSet.add(o.date.substring(0, 7)); });
+    conversions.forEach(c => { if (c.date) monthsSet.add(c.date.substring(0, 7)); });
+    expenses.forEach(e => { if (e.date) monthsSet.add(e.date.substring(0, 7)); });
+
+    // Sorted list of months
+    const sortedMonths = Array.from(monthsSet).sort();
+    
+    const monthlyData = sortedMonths.map(month => {
+      // 1. Filter orders for this month (respecting active filters)
+      const monthlyOrders = orders.filter(o => o.date && o.date.startsWith(month));
+      
+      const filterOrdersByAgent = (data: any[]) => data.filter(item => {
+        let match = true;
+        const requiresMyAgentFilter = (req: any) => {
+           if (!req) return false;
+           if (typeof req === 'string') return req !== 'all' && req !== '';
+           return req.length > 0 && !req.includes('all') && !(req.length === 1 && req[0] === '');
+        };
+        const matchAgentId = (item_agent: number | undefined, req: any) => {
+           if (typeof req === 'string') return item_agent === Number(req);
+           return item_agent !== undefined && req.includes(String(item_agent));
+        };
+
+        if (requiresMyAgentFilter(filterMYAgent)) {
+          if (!matchAgentId(item.my_agent_id, filterMYAgent)) match = false;
+        }
+        if (requiresMyAgentFilter(filterBDAgent)) {
+          if (!matchAgentId(item.bd_agent_id, filterBDAgent)) match = false;
+        }
+        return match;
+      });
+
+      const filteredMonthlyOrders = filterOrdersByAgent(monthlyOrders);
+
+      // Conversions in this month
+      const monthlyConversions = conversions.filter(c => c.date && c.date.startsWith(month));
+      // Expenses in this month (non-BDT)
+      const monthlyExpenses = expenses.filter(e => e.date && e.date.startsWith(month) && e.currency !== 'BDT');
+
+      const totalBdtOrder = filteredMonthlyOrders.reduce((sum, o) => sum + Number(o.amount_bdt), 0);
+      const totalRmOrder = filteredMonthlyOrders.reduce((sum, o) => sum + Number(o.amount_myr), 0);
+      
+      const totalGlobalBdtOrder = monthlyOrders.reduce((sum, o) => sum + Number(o.amount_bdt), 0);
+      
+      const totalBdtConverted = monthlyConversions.reduce((sum, c) => sum + Number(c.total_bd_received || c.amount_bdt), 0);
+      const totalRmConverted = monthlyConversions.reduce((sum, c) => sum + Number(c.amount_myr), 0);
+      
+      const avgConvertRate = totalRmConverted > 0 ? totalBdtConverted / totalRmConverted : 0;
+      const totalConvertedRm = avgConvertRate > 0 ? totalBdtOrder / avgConvertRate : 0;
+      const grossProfit = totalRmOrder - totalConvertedRm;
+      
+      const totalGlobalCharges = monthlyConversions.reduce((sum, c) => sum + Number(c.bank_charges), 0);
+      const totalGlobalExp = monthlyExpenses.reduce((sum, e) => sum + Number(e.amount_myr), 0);
+      
+      const requiresMyAgentFilter = (req: any) => {
+         if (!req) return false;
+         if (typeof req === 'string') return req !== 'all' && req !== '';
+         return req.length > 0 && !req.includes('all') && !(req.length === 1 && req[0] === '');
+      };
+      const isAgentSelected = requiresMyAgentFilter(filterMYAgent) || requiresMyAgentFilter(filterBDAgent);
+      const proRateFactor = (isAgentSelected && totalGlobalBdtOrder > 0) ? (totalBdtOrder / totalGlobalBdtOrder) : 1;
+      
+      const totalCharges = totalGlobalCharges * proRateFactor;
+      const totalExp = totalGlobalExp * proRateFactor;
+      
+      const netProfit = grossProfit - totalCharges - totalExp;
+
+      // Format month for display: e.g. "Jul 2026"
+      let monthLabel = month;
+      try {
+        const [year, monthNum] = month.split('-');
+        const dateObj = new Date(Number(year), Number(monthNum) - 1, 1);
+        monthLabel = dateObj.toLocaleDateString('default', { month: 'short', year: 'numeric' });
+      } catch (err) {
+        console.error(err);
+      }
+
+      return {
+        month,
+        monthLabel,
+        netProfit: Number(netProfit.toFixed(2)),
+        grossProfit: Number(grossProfit.toFixed(2)),
+        expenses: Number(totalExp.toFixed(2)),
+        charges: Number(totalCharges.toFixed(2)),
+        volume: Number(totalRmOrder.toFixed(2)),
+      };
+    });
+
+    // Filter by start and end date filters if active
+    return monthlyData.filter(d => {
+      if (startDate && d.month < startDate.substring(0, 7)) return false;
+      if (endDate && d.month > endDate.substring(0, 7)) return false;
+      return true;
+    });
+  };
+
   useEffect(() => {
     if (initialFilters) {
       setReportType(initialFilters.type || 'summary');
@@ -6867,7 +6984,7 @@ function Reports({ token, stats, initialFilters }: { token: string; stats: any; 
   };
 
   const exportToPDF = () => {
-    if (!reportData) return;
+    if (reportType !== 'monthly_profit' && !reportData) return;
     const doc = new jsPDF();
     
     const formatAgentNames = (ids: string[], agentsList: any[]) => {
@@ -6888,16 +7005,48 @@ function Reports({ token, stats, initialFilters }: { token: string; stats: any; 
        agentName = formatAgentNames(filterBDAgent, bdAgents);
     }
 
-    doc.setFontSize(20);
+    let titleText = `${reportType.replace('_', ' ').toUpperCase()} REPORT - ${agentName}`;
+    if (reportType === 'monthly_profit') {
+      titleText = `MONTHLY NET PROFIT REPORT - ${agentName}`;
+    }
+
+    doc.setFontSize(18);
     doc.setTextColor(15, 23, 42);
-    doc.text(`${reportType.replace('_', ' ').toUpperCase()} REPORT - ${agentName}`, 14, 20);
+    doc.text(titleText, 14, 20);
     
     doc.setFontSize(10);
     doc.setTextColor(100, 116, 139);
     doc.text(`Juel Money Transfer Apps (${startDate ? formatDate(startDate) : 'Beginning'} — ${endDate ? formatDate(endDate) : 'Present'})`, 14, 28);
     doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 34);
     
-    if (reportType === 'summary') {
+    if (reportType === 'monthly_profit') {
+      const chartData = getMonthlyProfitData();
+      const bodyData = chartData.map(d => [
+        d.monthLabel,
+        d.volume.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        d.grossProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        d.expenses.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        d.charges.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        d.netProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      ]);
+      const columnTotals = [
+        'TOTAL',
+        chartData.reduce((sum, d) => sum + d.volume, 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        chartData.reduce((sum, d) => sum + d.grossProfit, 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        chartData.reduce((sum, d) => sum + d.expenses, 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        chartData.reduce((sum, d) => sum + d.charges, 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        chartData.reduce((sum, d) => sum + d.netProfit, 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      ];
+      autoTable(doc, {
+        startY: 50,
+        head: [['Month', 'Order Volume (RM)', 'Gross Profit (RM)', 'Expenses (RM)', 'Bank Charges (RM)', 'Net Profit (RM)']],
+        body: bodyData,
+        foot: [columnTotals],
+        theme: 'striped',
+        headStyles: { fillColor: [15, 23, 42] },
+        footStyles: { fillColor: [248, 250, 252], textColor: [15, 23, 42], fontStyle: 'bold' }
+      });
+    } else if (reportType === 'summary') {
       if (!reportData.summary) return;
       const { summary } = reportData;
       const data = [
@@ -7027,9 +7176,45 @@ function Reports({ token, stats, initialFilters }: { token: string; stats: any; 
 
   const exportToExcel = () => {
     console.log('Exporting to Excel...', reportData);
-    if (!reportData) return;
+    if (reportType !== 'monthly_profit' && !reportData) return;
     let ws;
-    if (reportType === 'summary') {
+    if (reportType === 'monthly_profit') {
+      const chartData = getMonthlyProfitData();
+      const exportData = chartData.map(d => ({
+        'Month': d.monthLabel,
+        'Order Volume (RM)': d.volume,
+        'Gross Profit (RM)': d.grossProfit,
+        'Expenses (RM)': d.expenses,
+        'Bank Charges (RM)': d.charges,
+        'Net Profit (RM)': d.netProfit
+      }));
+      // Add total row
+      exportData.push({
+        'Month': 'TOTAL',
+        'Order Volume (RM)': Number(chartData.reduce((sum, d) => sum + d.volume, 0).toFixed(2)),
+        'Gross Profit (RM)': Number(chartData.reduce((sum, d) => sum + d.grossProfit, 0).toFixed(2)),
+        'Expenses (RM)': Number(chartData.reduce((sum, d) => sum + d.expenses, 0).toFixed(2)),
+        'Bank Charges (RM)': Number(chartData.reduce((sum, d) => sum + d.charges, 0).toFixed(2)),
+        'Net Profit (RM)': Number(chartData.reduce((sum, d) => sum + d.netProfit, 0).toFixed(2))
+      });
+      ws = XLSX.utils.json_to_sheet(exportData);
+      
+      // Apply styling to the total row in Excel
+      if (exportData.length > 0) {
+        const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+        const lastRowIndex = range.e.r;
+        for (let col = 0; col <= range.e.c; col++) {
+          const cellAddress = XLSX.utils.encode_cell({ r: lastRowIndex, c: col });
+          if (ws[cellAddress]) {
+            ws[cellAddress].s = {
+              font: { bold: true, color: { rgb: "FFFFFF" } },
+              fill: { fgColor: { rgb: "0F172A" }, patternType: "solid" },
+              alignment: { vertical: "center", horizontal: "left" }
+            };
+          }
+        }
+      }
+    } else if (reportType === 'summary') {
       if (!reportData.summary) return;
       const { summary } = reportData;
       const data = [{
@@ -7110,6 +7295,155 @@ function Reports({ token, stats, initialFilters }: { token: string; stats: any; 
     const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     saveAs(blob, `remitflow_${reportType}_report.xlsx`);
     console.log('Download triggered');
+  };
+
+  const renderMonthlyProfitChart = () => {
+    const chartData = getMonthlyProfitData();
+
+    if (chartData.length === 0) {
+      return (
+        <Card className="p-8 text-center text-slate-500 text-xs italic bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl">
+          No monthly financial data found for the selected filters.
+        </Card>
+      );
+    }
+
+    const totalVolume = chartData.reduce((sum, d) => sum + d.volume, 0);
+    const totalGrossProfit = chartData.reduce((sum, d) => sum + d.grossProfit, 0);
+    const totalExpenses = chartData.reduce((sum, d) => sum + d.expenses, 0);
+    const totalCharges = chartData.reduce((sum, d) => sum + d.charges, 0);
+    const totalNetProfit = chartData.reduce((sum, d) => sum + d.netProfit, 0);
+
+    return (
+      <div id="report-content" className="space-y-6 bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800">
+        <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-800 pb-4 mb-4">
+          <div>
+            <h1 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
+              MONTHLY NET PROFIT CHART
+            </h1>
+            <p className="text-sm font-medium text-slate-500 uppercase tracking-wider mt-1">
+              Visualizing Monthly Net Profit &amp; Business Volume
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Total Net Profit</p>
+            <p className={cn("text-lg font-bold font-mono", totalNetProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+              {formatCurrency(totalNetProfit)}
+            </p>
+          </div>
+        </div>
+
+        {/* Dynamic Cards Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <Card className="p-4 bg-slate-50/50 dark:bg-slate-800/30 border-none shadow-none">
+            <h4 className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Total Order Volume</h4>
+            <p className="text-base font-bold text-slate-900 dark:text-white font-mono">{formatCurrency(totalVolume)}</p>
+          </Card>
+          <Card className="p-4 bg-slate-50/50 dark:bg-slate-800/30 border-none shadow-none">
+            <h4 className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Total Gross Profit</h4>
+            <p className="text-base font-bold text-slate-900 dark:text-white font-mono">{formatCurrency(totalGrossProfit)}</p>
+          </Card>
+          <Card className="p-4 bg-slate-50/50 dark:bg-slate-800/30 border-none shadow-none">
+            <h4 className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Total Expenses &amp; Charges</h4>
+            <p className="text-base font-bold text-slate-900 dark:text-white font-mono">{formatCurrency(totalExpenses + totalCharges)}</p>
+          </Card>
+          <Card className={cn("p-4 border-none shadow-none", totalNetProfit >= 0 ? "bg-emerald-50/30 dark:bg-emerald-950/10" : "bg-red-50/30 dark:bg-red-950/10")}>
+            <h4 className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">Cumulative Net Profit</h4>
+            <p className={cn("text-base font-bold font-mono", totalNetProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>{formatCurrency(totalNetProfit)}</p>
+          </Card>
+        </div>
+
+        {/* The Recharts Bar Chart Card */}
+        <Card className="p-4 bg-slate-50/20 dark:bg-slate-800/10">
+          <div className="h-[400px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} margin={{ top: 20, right: 30, left: 10, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-800" />
+                <XAxis 
+                  dataKey="monthLabel" 
+                  tick={{ fill: '#64748b', fontSize: 11 }}
+                  axisLine={{ stroke: '#cbd5e1' }}
+                />
+                <YAxis 
+                  tick={{ fill: '#64748b', fontSize: 11 }}
+                  axisLine={{ stroke: '#cbd5e1' }}
+                  tickFormatter={(value) => `${value.toLocaleString()}`}
+                />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: '#0f172a', 
+                    borderColor: '#1e293b',
+                    borderRadius: '0.5rem',
+                    color: '#f8fafc'
+                  }}
+                  formatter={(value: any) => [`RM ${value.toLocaleString(undefined, {minimumFractionDigits: 2})}`, 'Net Profit']}
+                />
+                <Legend verticalAlign="top" height={36}/>
+                <ReferenceLine y={0} stroke="#cbd5e1" strokeWidth={1} />
+                <Bar dataKey="netProfit" name="Net Profit (RM)" radius={[4, 4, 0, 0]}>
+                  {chartData.map((entry: any, index: number) => {
+                    const isPositive = entry.netProfit >= 0;
+                    return (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={isPositive ? '#10b981' : '#ef4444'} 
+                      />
+                    );
+                  })}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+
+        {/* Detailed Breakdown List */}
+        <div className="mt-4">
+          <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">Monthly Breakdown Data</h3>
+          <Card className="overflow-hidden border border-slate-100 dark:border-slate-800">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
+                  <tr>
+                    <th className="px-4 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Month</th>
+                    <th className="px-4 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Order Volume</th>
+                    <th className="px-4 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Gross Profit</th>
+                    <th className="px-4 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Expenses</th>
+                    <th className="px-4 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Bank Charges</th>
+                    <th className="px-4 py-3 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-right">Net Profit</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {chartData.map((d, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                      <td className="px-4 py-2.5 text-xs font-semibold text-slate-900 dark:text-white">{d.monthLabel}</td>
+                      <td className="px-4 py-2.5 text-xs text-slate-600 dark:text-slate-300 text-right font-mono">{formatCurrency(d.volume)}</td>
+                      <td className="px-4 py-2.5 text-xs text-slate-600 dark:text-slate-300 text-right font-mono">{formatCurrency(d.grossProfit)}</td>
+                      <td className="px-4 py-2.5 text-xs text-slate-600 dark:text-slate-300 text-right font-mono text-red-600 dark:text-red-400">{formatCurrency(d.expenses)}</td>
+                      <td className="px-4 py-2.5 text-xs text-slate-600 dark:text-slate-300 text-right font-mono text-red-600 dark:text-red-400">{formatCurrency(d.charges)}</td>
+                      <td className={cn("px-4 py-2.5 text-xs text-right font-mono font-bold", d.netProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+                        {formatCurrency(d.netProfit)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 font-bold">
+                  <tr>
+                    <td className="px-4 py-3 text-xs text-slate-900 dark:text-white uppercase">Total</td>
+                    <td className="px-4 py-3 text-xs text-slate-900 dark:text-white text-right font-mono">{formatCurrency(totalVolume)}</td>
+                    <td className="px-4 py-3 text-xs text-slate-900 dark:text-white text-right font-mono">{formatCurrency(totalGrossProfit)}</td>
+                    <td className="px-4 py-3 text-xs text-red-600 dark:text-red-400 text-right font-mono">{formatCurrency(totalExpenses)}</td>
+                    <td className="px-4 py-3 text-xs text-red-600 dark:text-red-400 text-right font-mono">{formatCurrency(totalCharges)}</td>
+                    <td className={cn("px-4 py-3 text-xs text-right font-mono font-bold", totalNetProfit >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
+                      {formatCurrency(totalNetProfit)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </Card>
+        </div>
+      </div>
+    );
   };
 
   const renderSummary = () => {
@@ -7395,24 +7729,61 @@ function Reports({ token, stats, initialFilters }: { token: string; stats: any; 
         </div>
       </div>
 
+      {/* Reports Section Sub-Tabs */}
+      <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-lg w-fit">
+        <button
+          onClick={() => {
+            if (reportType === 'monthly_profit') {
+              setReportType('summary');
+            }
+          }}
+          className={cn(
+            "px-4 py-1.5 rounded-md text-xs font-medium transition-all",
+            reportType !== 'monthly_profit'
+              ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
+              : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+          )}
+        >
+          Tabular Reports
+        </button>
+        <button
+          onClick={() => setReportType('monthly_profit')}
+          className={cn(
+            "px-4 py-1.5 rounded-md text-xs font-medium transition-all",
+            reportType === 'monthly_profit'
+              ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
+              : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+          )}
+        >
+          Monthly Net Profit Chart
+        </button>
+      </div>
+ 
       <Card className="p-3 bg-slate-50/50 dark:bg-slate-800/50">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-2">
-          <Select 
-            label="Report Type" 
-            value={reportType}
-            onChange={e => setReportType(e.target.value)}
-            options={[
-              {value: 'summary', label: 'Profit Summary'},
-              {value: 'daily_financial', label: 'Daily Financial Report'},
-              {value: 'orders', label: 'Order Report'},
-              {value: 'payments', label: 'Payment Report'},
-              {value: 'expenses', label: 'Expense Report'},
-              {value: 'conversions', label: 'Conversion Report'},
-              {value: 'outstanding', label: 'Outstanding Report'},
-              {value: 'collection', label: 'Collection Report'},
-              {value: 'ledger', label: 'Agent Ledger'}
-            ]} 
-          />
+          {reportType !== 'monthly_profit' ? (
+            <Select 
+              label="Report Type" 
+              value={reportType}
+              onChange={e => setReportType(e.target.value)}
+              options={[
+                {value: 'summary', label: 'Profit Summary'},
+                {value: 'daily_financial', label: 'Daily Financial Report'},
+                {value: 'orders', label: 'Order Report'},
+                {value: 'payments', label: 'Payment Report'},
+                {value: 'expenses', label: 'Expense Report'},
+                {value: 'conversions', label: 'Conversion Report'},
+                {value: 'outstanding', label: 'Outstanding Report'},
+                {value: 'collection', label: 'Collection Report'},
+                {value: 'ledger', label: 'Agent Ledger'}
+              ]} 
+            />
+          ) : (
+            <div className="flex flex-col justify-center px-3 bg-white/50 dark:bg-slate-900/50 rounded border border-dashed border-slate-200 dark:border-slate-800 h-[52px]">
+              <span className="text-[9px] text-slate-400 font-bold uppercase">Active View</span>
+              <span className="text-xs text-slate-900 dark:text-white font-semibold">Net Profit Chart</span>
+            </div>
+          )}
           <MultiSearchableSelect 
             label="MY Agent" 
             values={filterMYAgent}
@@ -7439,18 +7810,22 @@ function Reports({ token, stats, initialFilters }: { token: string; stats: any; 
           />
         </div>
       </Card>
-
+ 
       {loading ? (
         <div className="p-8 text-center text-slate-500 text-xs">Generating report...</div>
       ) : (
         <>
           <div className="mt-6">
-            {reportType === 'summary' ? renderSummary() : renderTableReport()}
+            {reportType === 'monthly_profit' 
+              ? renderMonthlyProfitChart() 
+              : reportType === 'summary' 
+                ? renderSummary() 
+                : renderTableReport()}
           </div>
           
           {/* Hidden full report for export */}
           <div className="hidden">
-            {reportType !== 'summary' && renderTableReport(true)}
+            {reportType !== 'summary' && reportType !== 'monthly_profit' && renderTableReport(true)}
           </div>
         </>
       )}
