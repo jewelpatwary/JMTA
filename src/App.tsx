@@ -6835,8 +6835,8 @@ function CalculationPage() {
 function Reports({ token, stats, initialFilters }: { token: string; stats: any; initialFilters?: any }) {
   const { myAgents, bdAgents } = useAppStore();
   const [reportType, setReportType] = useState('summary');
-  const [filterMYAgent, setFilterMYAgent] = useState<string[]>(['']);
-  const [filterBDAgent, setFilterBDAgent] = useState<string[]>(['']);
+  const [filterMYAgent, setFilterMYAgent] = useState<string>('');
+  const [filterBDAgent, setFilterBDAgent] = useState<string>('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [reportData, setReportData] = useState<any>(null);
@@ -6949,12 +6949,12 @@ function Reports({ token, stats, initialFilters }: { token: string; stats: any; 
   useEffect(() => {
     if (initialFilters) {
       setReportType(initialFilters.type || 'summary');
-      setFilterMYAgent(initialFilters.my_agent_id ? [initialFilters.my_agent_id] : ['']);
-      setFilterBDAgent(initialFilters.bd_agent_id ? [initialFilters.bd_agent_id] : ['']);
+      setFilterMYAgent(initialFilters.my_agent_id ? String(initialFilters.my_agent_id) : '');
+      setFilterBDAgent(initialFilters.bd_agent_id ? String(initialFilters.bd_agent_id) : '');
     } else {
       setReportType('summary');
-      setFilterMYAgent(['']);
-      setFilterBDAgent(['']);
+      setFilterMYAgent('');
+      setFilterBDAgent('');
     }
   }, [initialFilters]);
 
@@ -6987,22 +6987,22 @@ function Reports({ token, stats, initialFilters }: { token: string; stats: any; 
     if (reportType !== 'monthly_profit' && !reportData) return;
     const doc = new jsPDF();
     
-    const formatAgentNames = (ids: string[], agentsList: any[]) => {
-      if (ids.includes('all') || (ids.length === 1 && ids[0] === '')) return 'All';
-      const selected = agentsList.filter(a => ids.includes(a.id.toString()));
-      return selected.map(a => a.name).join(', ');
+    const formatAgentName = (val: string, agentsList: any[]) => {
+      if (val === '' || val === 'all') return 'All';
+      const agent = agentsList.find(a => a.id.toString() === val);
+      return agent ? agent.name : 'Unknown';
     };
     
     let agentName = "All Agents";
-    const isMyAll = filterMYAgent.includes('all') || (filterMYAgent.length === 1 && filterMYAgent[0] === '');
-    const isBdAll = filterBDAgent.includes('all') || (filterBDAgent.length === 1 && filterBDAgent[0] === '');
+    const isMyAll = filterMYAgent === '' || filterMYAgent === 'all';
+    const isBdAll = filterBDAgent === '' || filterBDAgent === 'all';
     
     if (!isMyAll && !isBdAll) {
-       agentName = `${formatAgentNames(filterMYAgent, myAgents)} / ${formatAgentNames(filterBDAgent, bdAgents)}`;
+       agentName = `${formatAgentName(filterMYAgent, myAgents)} / ${formatAgentName(filterBDAgent, bdAgents)}`;
     } else if (!isMyAll) {
-       agentName = formatAgentNames(filterMYAgent, myAgents);
+       agentName = formatAgentName(filterMYAgent, myAgents);
     } else if (!isBdAll) {
-       agentName = formatAgentNames(filterBDAgent, bdAgents);
+       agentName = formatAgentName(filterBDAgent, bdAgents);
     }
 
     let titleText = `${reportType.replace('_', ' ').toUpperCase()} REPORT - ${agentName}`;
@@ -7784,15 +7784,15 @@ function Reports({ token, stats, initialFilters }: { token: string; stats: any; 
               <span className="text-xs text-slate-900 dark:text-white font-semibold">Net Profit Chart</span>
             </div>
           )}
-          <MultiSearchableSelect 
+          <SearchableSelect 
             label="MY Agent" 
-            values={filterMYAgent}
+            value={filterMYAgent}
             onChange={val => setFilterMYAgent(val)}
             options={[{value: '', label: 'Blank'}, {value: 'all', label: 'All MY Agents'}, ...myAgents.map(a => ({value: a.id, label: a.name}))]} 
           />
-          <MultiSearchableSelect 
+          <SearchableSelect 
             label="BD Agent" 
-            values={filterBDAgent}
+            value={filterBDAgent}
             onChange={val => setFilterBDAgent(val)}
             options={[{value: '', label: 'Blank'}, {value: 'all', label: 'All BD Agents'}, ...bdAgents.map(a => ({value: a.id, label: a.name}))]} 
           />

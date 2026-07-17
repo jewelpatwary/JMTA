@@ -1644,9 +1644,26 @@ export const store = {
       let isMyAgent = false;
       let initialDate = '';
 
-      if (my_agent_id) {
+      const getValidAgentId = (val: any) => {
+        if (!val) return null;
+        if (typeof val === 'string') {
+          if (val === '' || val === 'all') return null;
+          return Number(val);
+        }
+        if (Array.isArray(val)) {
+          const first = val[0];
+          if (!first || first === '' || first === 'all') return null;
+          return Number(first);
+        }
+        return null;
+      };
+
+      const myAgentIdNum = getValidAgentId(my_agent_id);
+      const bdAgentIdNum = getValidAgentId(bd_agent_id);
+
+      if (myAgentIdNum) {
         isMyAgent = true;
-        const agent = myAgents.find(a => a.id === Number(my_agent_id));
+        const agent = myAgents.find(a => a.id === myAgentIdNum);
         if (agent) {
           initialDate = agent.initial_balance_date || '';
           let currentBalance = Number(agent.initial_balance) || 0;
@@ -1691,8 +1708,8 @@ export const store = {
           
           balance = currentBalance;
         }
-      } else if (bd_agent_id) {
-        const agent = bdAgents.find(a => a.id === Number(bd_agent_id));
+      } else if (bdAgentIdNum) {
+        const agent = bdAgents.find(a => a.id === bdAgentIdNum);
         if (agent) {
           initialDate = agent.initial_balance_date || '';
           let currentBalance = Number(agent.initial_balance) || 0;
